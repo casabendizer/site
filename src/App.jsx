@@ -1,19 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import {
   Home, Users, Wine, DollarSign, BookOpen, Music, HeartHandshake, Bell,
-  LogOut, Plus, Check, Copy, ExternalLink, Calendar, Cake, Shield,
-  HeartPulse, Sparkles, Search, Trash2, Edit3, Send, MessageCircle,
-  AlertCircle, CheckCircle2, UserCheck, Lock, Mail
+  LogOut, Copy, ExternalLink, Calendar, Cake, Shield,
+  HeartPulse, Sparkles, Trash2, Send, MessageCircle,
+  AlertCircle, CheckCircle2, Lock, Mail, Clock, RefreshCw, BookmarkPlus, Check, X
 } from 'lucide-react';
 import { supabase, isConfigured } from './supabaseClient';
 
-const MES_ATUAL = new Date().toISOString().slice(0, 7); // Ex: '2026-11'
+const MES_ATUAL = new Date().toISOString().slice(0, 7);
 const MES_NUMERO = new Date().getMonth() + 1;
+
+const MODULOS_PERMISSAO = [
+  { id: 'cadastros', label: 'Gestão de Cadastros (Médiuns)' },
+  { id: 'caixinha', label: 'Gestão de Caixinha & Bebidas' },
+  { id: 'biblioteca', label: 'Gestão da Biblioteca' },
+  { id: 'curimba', label: 'Curadoria da Curimba' },
+];
 
 export default function App() {
   const [session, setSession] = useState(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
-  const [authMode, setAuthMode] = useState('login'); // 'login' | 'signup'
+  const [authMode, setAuthMode] = useState('login');
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authNome, setAuthNome] = useState('');
@@ -21,12 +28,10 @@ export default function App() {
   const [authNascimento, setAuthNascimento] = useState('');
   const [authError, setAuthError] = useState('');
 
-  // Perfil do usuário logado e dados gerais
   const [currentUserProfile, setCurrentUserProfile] = useState(null);
   const [activeTab, setActiveTab] = useState('home');
   const [toast, setToast] = useState('');
 
-  // Tabelas do banco
   const [mediums, setMediums] = useState([]);
   const [bebidas, setBebidas] = useState([]);
   const [financeiro, setFinanceiro] = useState([]);
@@ -38,7 +43,7 @@ export default function App() {
 
   const showToast = (msg) => {
     setToast(msg);
-    setTimeout(() => setToast(''), 3500);
+    setTimeout(() => setToast(''), 3800);
   };
 
   useEffect(() => {
@@ -91,7 +96,6 @@ export default function App() {
       setGiras(resGiras.data || []);
       setNotificacoes(resNotif.data || []);
 
-      // Encontrar ou criar perfil do usuário logado
       let myProfile = allMediums.find(m => m.user_id === user.id || m.email === user.email);
       if (!myProfile) {
         const isFirstUser = allMediums.length === 0;
@@ -101,8 +105,9 @@ export default function App() {
           email: user.email,
           telefone: user.user_metadata?.telefone || '',
           data_nascimento: user.user_metadata?.data_nascimento || null,
-          cargo: isFirstUser ? 'Dirigente / Administração' : 'Médium de Corrente',
+          cargo: isFirstUser ? 'Administração Geral' : 'Médium de Corrente',
           nivel_acesso: isFirstUser ? 'admin' : 'medium',
+          permissoes: [],
           ritos: [],
           entidades: []
         };
@@ -159,7 +164,7 @@ export default function App() {
           <AlertCircle className="w-12 h-12 text-amber-600 mx-auto mb-3" />
           <h1 className="text-xl font-bold text-stone-800 mb-2">Configuração Pendente</h1>
           <p className="text-sm text-stone-600">
-            As chaves <code>VITE_SUPABASE_URL</code> e <code>VITE_SUPABASE_ANON_KEY</code> ainda não foram adicionadas nas variáveis de ambiente da Vercel.
+            As chaves <code>VITE_SUPABASE_URL</code> e <code>VITE_SUPABASE_ANON_KEY</code> ainda não foram configuradas.
           </p>
         </div>
       </div>
@@ -177,7 +182,6 @@ export default function App() {
     );
   }
 
-  // TELA DE LOGIN / CADASTRO
   if (!session) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-emerald-950 via-stone-900 to-amber-950 flex items-center justify-center p-4">
@@ -296,15 +300,22 @@ export default function App() {
     );
   }
 
+  // Cálculo de permissões granulares
   const role = currentUserProfile?.nivel_acesso || 'medium';
+  const perms = currentUserProfile?.permissoes || [];
   const isAdmin = role === 'admin';
-  const isStaff = role === 'admin' || role === 'secretaria';
+  const isSecretaria = role === 'secretaria';
+
+  const canCadastros = isAdmin || isSecretaria || perms.includes('cadastros');
+  const canCaixinha = isAdmin || isSecretaria || perms.includes('caixinha');
+  const canBiblioteca = isAdmin || isSecretaria || perms.includes('biblioteca');
+  const canCurimba = isAdmin || isSecretaria || perms.includes('curimba');
 
   const navItems = [
     { id: 'home', label: 'Início', icon: Home },
-    { id: 'mediums', label: isStaff ? 'Médiuns' : 'Minha Ficha', icon: Users },
-    { id: 'bebidas', label: 'Bebidas (R$ 10)', icon: Wine },
-    ...(isStaff ? [{ id: 'financeiro', label: 'Financeiro', icon: DollarSign }] : []),
+    { id: 'mediums', label: canCadastros ? 'Médiuns' : 'Minha Ficha', icon: Users },
+    ...(canCaixinha ? [{ id: 'bebidas', label: 'Bebidas (R$ 10)', icon: Wine }] : []),
+    ...(canCaixinha ? [{ id: 'financeiro', label: 'Financeiro', icon: DollarSign }] : []),
     { id: 'doacoes', label: 'Caixinha', icon: HeartHandshake },
     { id: 'curimba', label: 'Curimba', icon: Music },
     { id: 'biblioteca', label: 'Biblioteca', icon: BookOpen },
@@ -313,7 +324,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col bg-stone-50">
-      {/* Toast flutuante */}
       {toast && (
         <div className="fixed bottom-5 right-5 z-50 bg-emerald-900 text-white px-4 py-3 rounded-xl shadow-xl flex items-center gap-2 text-sm font-medium">
           <CheckCircle2 className="w-4 h-4 text-amber-300" />
@@ -321,7 +331,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Cabeçalho */}
       <header className="bg-emerald-950 text-white sticky top-0 z-30 shadow-md">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -333,7 +342,7 @@ export default function App() {
               <p className="text-xs text-emerald-300">
                 Olá, {currentUserProfile?.nome} •{' '}
                 <span className="uppercase font-semibold text-amber-300">
-                  {role === 'admin' ? 'Admin Geral' : role === 'secretaria' ? 'Secretaria' : 'Médium'}
+                  {isAdmin ? 'Admin Geral' : isSecretaria ? 'Secretaria' : perms.length > 0 ? 'Médium / Equipe' : 'Médium'}
                 </span>
               </p>
             </div>
@@ -348,7 +357,6 @@ export default function App() {
           </button>
         </div>
 
-        {/* Navegação */}
         <nav className="bg-emerald-900/80 border-t border-emerald-800/80 overflow-x-auto">
           <div className="max-w-7xl mx-auto px-4 flex gap-1 py-1.5">
             {navItems.map(item => {
@@ -373,7 +381,6 @@ export default function App() {
         </nav>
       </header>
 
-      {/* Conteúdo Principal */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-6">
         {activeTab === 'home' && (
           <HomeTab
@@ -381,9 +388,10 @@ export default function App() {
             setGiras={setGiras}
             mediums={mediums}
             bebidas={bebidas}
+            campanhas={campanhas}
             notificacoes={notificacoes}
-            currentUser={currentUserProfile}
-            isStaff={isStaff}
+            canCadastros={canCadastros}
+            canCaixinha={canCaixinha}
             showToast={showToast}
           />
         )}
@@ -394,11 +402,11 @@ export default function App() {
             currentUser={currentUserProfile}
             setCurrentUser={setCurrentUserProfile}
             isAdmin={isAdmin}
-            isStaff={isStaff}
+            canCadastros={canCadastros}
             showToast={showToast}
           />
         )}
-        {activeTab === 'bebidas' && (
+        {activeTab === 'bebidas' && canCaixinha && (
           <BebidasTab
             mediums={mediums}
             bebidas={bebidas}
@@ -406,11 +414,10 @@ export default function App() {
             financeiro={financeiro}
             setFinanceiro={setFinanceiro}
             currentUser={currentUserProfile}
-            isStaff={isStaff}
             showToast={showToast}
           />
         )}
-        {activeTab === 'financeiro' && isStaff && (
+        {activeTab === 'financeiro' && canCaixinha && (
           <FinanceiroTab
             financeiro={financeiro}
             setFinanceiro={setFinanceiro}
@@ -425,7 +432,7 @@ export default function App() {
             financeiro={financeiro}
             setFinanceiro={setFinanceiro}
             currentUser={currentUserProfile}
-            isStaff={isStaff}
+            canCaixinha={canCaixinha}
             showToast={showToast}
           />
         )}
@@ -433,7 +440,8 @@ export default function App() {
           <CurimbaTab
             pontos={pontos}
             setPontos={setPontos}
-            isStaff={isStaff}
+            currentUser={currentUserProfile}
+            canCurimba={canCurimba}
             showToast={showToast}
           />
         )}
@@ -442,8 +450,10 @@ export default function App() {
             livros={livros}
             setLivros={setLivros}
             mediums={mediums}
+            notificacoes={notificacoes}
+            setNotificacoes={setNotificacoes}
             currentUser={currentUserProfile}
-            isStaff={isStaff}
+            canBiblioteca={canBiblioteca}
             showToast={showToast}
           />
         )}
@@ -453,9 +463,8 @@ export default function App() {
             setNotificacoes={setNotificacoes}
             mediums={mediums}
             bebidas={bebidas}
-            giras={giras}
-            currentUser={currentUserProfile}
-            isStaff={isStaff}
+            canCadastros={canCadastros}
+            canCaixinha={canCaixinha}
             showToast={showToast}
           />
         )}
@@ -465,7 +474,7 @@ export default function App() {
 }
 
 /* ===================== 1. ABA INÍCIO (HOME) ===================== */
-function HomeTab({ giras, setGiras, mediums, bebidas, notificacoes, currentUser, isStaff, showToast }) {
+function HomeTab({ giras, setGiras, mediums, bebidas, campanhas, notificacoes, canCadastros, canCaixinha, showToast }) {
   const [novaGira, setNovaGira] = useState({ titulo: '', data_gira: '', horario: '19:30', tipo: 'Gira de Atendimento' });
 
   const aniversariantes = mediums.filter(m => {
@@ -474,8 +483,8 @@ function HomeTab({ giras, setGiras, mediums, bebidas, notificacoes, currentUser,
     return mes === MES_NUMERO;
   });
 
-  const minhaBebidaPaga = bebidas.some(b => b.medium_id === currentUser?.id && b.pago);
   const totalBebidasPagas = bebidas.filter(b => b.pago).length;
+  const totalCaixinha = campanhas.reduce((acc, c) => acc + Number(c.arrecadado || 0), 0);
 
   const adicionarGira = async (e) => {
     e.preventDefault();
@@ -496,7 +505,6 @@ function HomeTab({ giras, setGiras, mediums, bebidas, notificacoes, currentUser,
 
   return (
     <div className="space-y-6">
-      {/* Cards de Resumo */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
           <p className="text-xs font-semibold text-stone-500 uppercase">Corrente Ativa</p>
@@ -504,22 +512,19 @@ function HomeTab({ giras, setGiras, mediums, bebidas, notificacoes, currentUser,
           <p className="text-xs text-stone-500 mt-1">Cadastrados na Casa Bendizer</p>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
-          <p className="text-xs font-semibold text-stone-500 uppercase">Caixinha Bebidas ({MES_ATUAL})</p>
-          {isStaff ? (
-            <>
-              <p className="text-2xl font-bold text-amber-700 mt-1">{totalBebidasPagas} / {mediums.length} Pagos</p>
-              <p className="text-xs text-stone-500 mt-1">Arrecadado: R$ {(totalBebidasPagas * 10).toFixed(2)}</p>
-            </>
-          ) : (
-            <>
-              <p className={`text-xl font-bold mt-1 ${minhaBebidaPaga ? 'text-emerald-700' : 'text-amber-600'}`}>
-                {minhaBebidaPaga ? 'Em dia (Pago)' : 'Pendente (R$ 10,00)'}
-              </p>
-              <p className="text-xs text-stone-500 mt-1">Contribuição mensal da corrente</p>
-            </>
-          )}
-        </div>
+        {canCaixinha ? (
+          <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
+            <p className="text-xs font-semibold text-stone-500 uppercase">Caixinha Bebidas ({MES_ATUAL})</p>
+            <p className="text-2xl font-bold text-amber-700 mt-1">{totalBebidasPagas} / {mediums.length} Pagos</p>
+            <p className="text-xs text-stone-500 mt-1">Arrecadado: R$ {(totalBebidasPagas * 10).toFixed(2)}</p>
+          </div>
+        ) : (
+          <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
+            <p className="text-xs font-semibold text-stone-500 uppercase">Caixinha do Terreiro</p>
+            <p className="text-2xl font-bold text-amber-700 mt-1">R$ {totalCaixinha.toFixed(2)}</p>
+            <p className="text-xs text-stone-500 mt-1">Total arrecadado nas campanhas</p>
+          </div>
+        )}
 
         <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
           <p className="text-xs font-semibold text-stone-500 uppercase">Próximos Trabalhos</p>
@@ -529,7 +534,6 @@ function HomeTab({ giras, setGiras, mediums, bebidas, notificacoes, currentUser,
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Calendário de Giras */}
         <div className="lg:col-span-2 bg-white rounded-2xl border border-stone-200 shadow-sm p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-bold text-lg text-stone-800 flex items-center gap-2">
@@ -538,7 +542,7 @@ function HomeTab({ giras, setGiras, mediums, bebidas, notificacoes, currentUser,
             </h2>
           </div>
 
-          {isStaff && (
+          {canCadastros && (
             <form onSubmit={adicionarGira} className="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-5 bg-stone-50 p-3 rounded-xl border border-stone-200">
               <input
                 type="text"
@@ -581,7 +585,7 @@ function HomeTab({ giras, setGiras, mediums, bebidas, notificacoes, currentUser,
                       <p className="text-xs text-stone-500">Horário: {g.horario} • {g.tipo}</p>
                     </div>
                   </div>
-                  {isStaff && (
+                  {canCadastros && (
                     <button onClick={() => removerGira(g.id)} className="text-stone-400 hover:text-red-600 p-1">
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -592,7 +596,6 @@ function HomeTab({ giras, setGiras, mediums, bebidas, notificacoes, currentUser,
           )}
         </div>
 
-        {/* Coluna Direita: Aniversariantes & Mural */}
         <div className="space-y-6">
           <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-6">
             <h2 className="font-bold text-base text-stone-800 flex items-center gap-2 mb-4">
@@ -640,14 +643,14 @@ function HomeTab({ giras, setGiras, mediums, bebidas, notificacoes, currentUser,
   );
 }
 
-/* ===================== 2. ABA MÉDIUNS (PESSOAL, SAÚDE & ESPIRITUAL) ===================== */
-function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin, isStaff, showToast }) {
+/* ===================== 2. ABA MÉDIUNS (PESSOAL, SAÚDE, ESPIRITUAL & PERMISSÕES) ===================== */
+function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin, canCadastros, showToast }) {
   const [selectedId, setSelectedId] = useState(currentUser?.id);
-  const [subTab, setSubTab] = useState('pessoal'); // 'pessoal' | 'espiritual'
+  const [subTab, setSubTab] = useState('pessoal');
   const [novoRito, setNovoRito] = useState('');
   const [novaEntidade, setNovaEntidade] = useState({ linha: 'Caboclo(a)', nome: '' });
 
-  const activeMedium = isStaff
+  const activeMedium = canCadastros
     ? (mediums.find(m => m.id === selectedId) || currentUser)
     : currentUser;
 
@@ -656,6 +659,17 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
   useEffect(() => {
     if (activeMedium) setForm(activeMedium);
   }, [activeMedium?.id, mediums]);
+
+  const isOwnProfile = form.id === currentUser?.id;
+  const canEditEntidades = canCadastros || isOwnProfile;
+
+  const togglePermissao = (modId) => {
+    const atuais = form.permissoes || [];
+    const atualizadas = atuais.includes(modId)
+      ? atuais.filter(p => p !== modId)
+      : [...atuais, modId];
+    setForm({ ...form, permissoes: atualizadas });
+  };
 
   const salvarFicha = async (e) => {
     e.preventDefault();
@@ -668,11 +682,14 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
       alergias: form.alergias,
       condicoes_medicas: form.condicoes_medicas,
       contato_emergencia: form.contato_emergencia,
-      ...(isStaff ? {
+      ...(canEditEntidades ? { entidades: form.entidades || [] } : {}),
+      ...(canCadastros ? {
         cargo: form.cargo,
-        nivel_acesso: form.nivel_acesso,
         ritos: form.ritos || [],
-        entidades: form.entidades || []
+      } : {}),
+      ...(isAdmin ? {
+        nivel_acesso: form.nivel_acesso,
+        permissoes: form.permissoes || []
       } : {})
     };
 
@@ -708,8 +725,7 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-      {/* Lista lateral (somente Admin e Secretaria veem todos os médiuns) */}
-      {isStaff && (
+      {canCadastros && (
         <div className="bg-white rounded-2xl border border-stone-200 p-4 shadow-sm h-fit">
           <h3 className="font-bold text-sm text-stone-800 mb-3 flex items-center gap-2">
             <Users className="w-4 h-4 text-emerald-700" />
@@ -736,8 +752,7 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
         </div>
       )}
 
-      {/* Ficha Detalhada */}
-      <div className={`${isStaff ? 'lg:col-span-3' : 'lg:col-span-4'} bg-white rounded-2xl border border-stone-200 p-6 shadow-sm`}>
+      <div className={`${canCadastros ? 'lg:col-span-3' : 'lg:col-span-4'} bg-white rounded-2xl border border-stone-200 p-6 shadow-sm`}>
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-stone-200 pb-4 mb-5">
           <div>
             <h2 className="text-xl font-bold text-stone-800">{form.nome}</h2>
@@ -761,7 +776,7 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
                 subTab === 'espiritual' ? 'bg-white text-emerald-900 shadow-sm' : 'text-stone-600'
               }`}
             >
-              <Sparkles className="w-3.5 h-3.5" /> Dados Espirituais & Guias
+              <Sparkles className="w-3.5 h-3.5" /> Espiritual & Acessos
             </button>
           </div>
         </div>
@@ -860,31 +875,65 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
             </>
           ) : (
             <div className="space-y-5">
-              {/* Cargo e Nível de Acesso */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-stone-50 p-4 rounded-xl border border-stone-200">
-                <div>
-                  <label className="block text-xs font-semibold text-stone-600 mb-1">Cargo na Casa Bendizer</label>
-                  <input
-                    type="text"
-                    disabled={!isStaff}
-                    value={form.cargo || ''}
-                    onChange={e => setForm({ ...form, cargo: e.target.value })}
-                    placeholder="Ex: Médium de Corrente, Cambono, Ogã, Mãe Pequena"
-                    className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white disabled:bg-stone-100"
-                  />
-                </div>
-                {isAdmin && (
+              {/* Cargo e Níveis de Acesso */}
+              <div className="bg-stone-50 p-4 rounded-xl border border-stone-200 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold text-stone-600 mb-1">Permissão de Acesso no Sistema</label>
-                    <select
-                      value={form.nivel_acesso || 'medium'}
-                      onChange={e => setForm({ ...form, nivel_acesso: e.target.value })}
-                      className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
-                    >
-                      <option value="medium">Médium (Acesso Restrito)</option>
-                      <option value="secretaria">Secretaria / Liderança</option>
-                      <option value="admin">Administrador Geral</option>
-                    </select>
+                    <label className="block text-xs font-semibold text-stone-600 mb-1">Cargo na Casa Bendizer</label>
+                    <input
+                      type="text"
+                      disabled={!canCadastros}
+                      value={form.cargo || ''}
+                      onChange={e => setForm({ ...form, cargo: e.target.value })}
+                      placeholder="Ex: Médium de Corrente, Cambono, Ogã, Mãe Pequena"
+                      className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white disabled:bg-stone-100"
+                    />
+                  </div>
+                  {isAdmin && (
+                    <div>
+                      <label className="block text-xs font-semibold text-stone-600 mb-1">Perfil Principal no Sistema</label>
+                      <select
+                        value={form.nivel_acesso || 'medium'}
+                        onChange={e => setForm({ ...form, nivel_acesso: e.target.value })}
+                        className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
+                      >
+                        <option value="medium">Médium (Padrão)</option>
+                        <option value="secretaria">Secretaria (Acesso a todos os setores)</option>
+                        <option value="admin">Administrador Geral (Total + Permissões)</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                {isAdmin && form.nivel_acesso === 'medium' && (
+                  <div className="pt-3 border-t border-stone-200">
+                    <p className="text-xs font-bold text-emerald-950 mb-2 flex items-center gap-1.5">
+                      <Shield className="w-4 h-4 text-emerald-700" />
+                      Permissões Específicas deste Médium (marque os setores que ele pode gerenciar):
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {MODULOS_PERMISSAO.map(mod => {
+                        const checked = (form.permissoes || []).includes(mod.id);
+                        return (
+                          <label
+                            key={mod.id}
+                            className={`flex items-center gap-2.5 p-2.5 rounded-xl border text-xs font-medium cursor-pointer transition ${
+                              checked
+                                ? 'bg-emerald-50 border-emerald-400 text-emerald-950'
+                                : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-100'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => togglePermissao(mod.id)}
+                              className="rounded text-emerald-700 focus:ring-emerald-600"
+                            />
+                            {mod.label}
+                          </label>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </div>
@@ -892,7 +941,7 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
               {/* Ritos e Obrigações */}
               <div className="border border-stone-200 rounded-xl p-4">
                 <h4 className="font-bold text-sm text-stone-800 mb-3">Ritos e Obrigações Realizadas</h4>
-                {isStaff && (
+                {canCadastros && (
                   <div className="flex gap-2 mb-3">
                     <input
                       type="text"
@@ -911,7 +960,7 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
                   {(form.ritos || []).map((r, i) => (
                     <span key={i} className="inline-flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-900 px-3 py-1.5 rounded-lg text-xs font-medium">
                       {r.nome} ({r.data})
-                      {isStaff && (
+                      {canCadastros && (
                         <button type="button" onClick={() => setForm({ ...form, ritos: form.ritos.filter((_, idx) => idx !== i) })} className="text-red-500 font-bold">×</button>
                       )}
                     </span>
@@ -919,10 +968,10 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
                 </div>
               </div>
 
-              {/* Entidades de Trabalho */}
+              {/* Entidades de Trabalho (Médium também pode adicionar as suas!) */}
               <div className="border border-stone-200 rounded-xl p-4">
                 <h4 className="font-bold text-sm text-stone-800 mb-3">Entidades de Trabalho</h4>
-                {isStaff && (
+                {canEditEntidades && (
                   <div className="flex flex-wrap gap-2 mb-3">
                     <select
                       value={novaEntidade.linha}
@@ -932,11 +981,14 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
                       <option>Caboclo(a)</option>
                       <option>Preto(a)-Velho(a)</option>
                       <option>Erê / Criança</option>
+                      <option>Mestre</option>
+                      <option>Mestra</option>
                       <option>Exu</option>
                       <option>Pombagira</option>
                       <option>Boiadeiro</option>
                       <option>Marinheiro</option>
                       <option>Baiano(a)</option>
+                      <option>Cigano(a)</option>
                     </select>
                     <input
                       type="text"
@@ -958,7 +1010,7 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
                         <span className="font-bold text-amber-900">{ent.linha}: </span>
                         <span className="text-stone-800">{ent.nome}</span>
                       </div>
-                      {isStaff && (
+                      {canEditEntidades && (
                         <button type="button" onClick={() => setForm({ ...form, entidades: form.entidades.filter((_, idx) => idx !== i) })} className="text-red-500 font-bold">×</button>
                       )}
                     </div>
@@ -979,8 +1031,8 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
   );
 }
 
-/* ===================== 3. ABA BEBIDAS (R$ 10/MÊS) ===================== */
-function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, currentUser, isStaff, showToast }) {
+/* ===================== 3. ABA BEBIDAS (EXCLUSIVO ADMIN / CAIXINHA) ===================== */
+function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, currentUser, showToast }) {
   const [compraDesc, setCompraDesc] = useState('');
   const [compraValor, setCompraValor] = useState('');
 
@@ -989,7 +1041,6 @@ function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, c
   const totalGasto = comprasBebidas.reduce((acc, item) => acc + Number(item.valor), 0);
 
   const togglePagamento = async (mediumId) => {
-    if (!isStaff) return;
     const existente = bebidas.find(b => b.medium_id === mediumId);
     if (existente) {
       const novoStatus = !existente.pago;
@@ -1034,7 +1085,7 @@ function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, c
       setFinanceiro([data, ...financeiro]);
       setCompraDesc('');
       setCompraValor('');
-      showToast('Compra de bebidas registrada na prestação de contas!');
+      showToast('Compra de bebidas registrada!');
     }
   };
 
@@ -1056,13 +1107,12 @@ function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, c
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Lista de Contribuição Mensal */}
         <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm">
           <h2 className="font-bold text-base text-stone-800 mb-1 flex items-center gap-2">
             <Wine className="w-5 h-5 text-amber-600" />
             Contribuição Mensal (R$ 10,00 / Médium)
           </h2>
-          <p className="text-xs text-stone-500 mb-4">Referência: {MES_ATUAL}</p>
+          <p className="text-xs text-stone-500 mb-4">Controle restrito à Administração & Equipe Caixinha • {MES_ATUAL}</p>
 
           <div className="space-y-2">
             {mediums.map(m => {
@@ -1075,13 +1125,12 @@ function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, c
                     <p className="text-[11px] text-stone-500">{m.cargo}</p>
                   </div>
                   <button
-                    disabled={!isStaff}
                     onClick={() => togglePagamento(m.id)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer hover:opacity-80 ${
                       pago
                         ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                         : 'bg-amber-100 text-amber-800 border border-amber-300'
-                    } ${isStaff ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}
+                    }`}
                   >
                     {pago ? '✓ Pago (R$ 10)' : 'Pendente'}
                   </button>
@@ -1091,34 +1140,31 @@ function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, c
           </div>
         </div>
 
-        {/* Prestação de Contas das Compras */}
         <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm">
           <h2 className="font-bold text-base text-stone-800 mb-4">Prestação de Contas (Compras)</h2>
 
-          {isStaff && (
-            <form onSubmit={registrarCompra} className="flex flex-wrap gap-2 mb-4 bg-stone-50 p-3 rounded-xl border border-stone-200">
-              <input
-                type="text"
-                placeholder="Ex: Marafo, vinho tinto, guaraná..."
-                value={compraDesc}
-                onChange={e => setCompraDesc(e.target.value)}
-                className="flex-1 px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white"
-                required
-              />
-              <input
-                type="number"
-                step="0.01"
-                placeholder="Valor R$"
-                value={compraValor}
-                onChange={e => setCompraValor(e.target.value)}
-                className="w-24 px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white"
-                required
-              />
-              <button type="submit" className="bg-emerald-800 text-white text-xs font-semibold px-3 py-2 rounded-lg">
-                Lançar
-              </button>
-            </form>
-          )}
+          <form onSubmit={registrarCompra} className="flex flex-wrap gap-2 mb-4 bg-stone-50 p-3 rounded-xl border border-stone-200">
+            <input
+              type="text"
+              placeholder="Ex: Marafo, vinho tinto, guaraná..."
+              value={compraDesc}
+              onChange={e => setCompraDesc(e.target.value)}
+              className="flex-1 px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white"
+              required
+            />
+            <input
+              type="number"
+              step="0.01"
+              placeholder="Valor R$"
+              value={compraValor}
+              onChange={e => setCompraValor(e.target.value)}
+              className="w-24 px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white"
+              required
+            />
+            <button type="submit" className="bg-emerald-800 text-white text-xs font-semibold px-3 py-2 rounded-lg">
+              Lançar
+            </button>
+          </form>
 
           <div className="space-y-2">
             {comprasBebidas.length === 0 ? (
@@ -1241,9 +1287,33 @@ function FinanceiroTab({ financeiro, setFinanceiro, currentUser, showToast }) {
 }
 
 /* ===================== 5. ABA CAIXINHA DO TERREIRO (DOAÇÕES) ===================== */
-function DoacoesTab({ campanhas, setCampanhas, financeiro, setFinanceiro, currentUser, isStaff, showToast }) {
+function DoacoesTab({ campanhas, setCampanhas, financeiro, setFinanceiro, currentUser, canCaixinha, showToast }) {
   const [valorDoacao, setValorDoacao] = useState('');
   const [campanhaSelecionada, setCampanhaSelecionada] = useState('');
+  const [novaCamp, setNovaCamp] = useState({ titulo: '', descricao: '', meta: '' });
+
+  const totalArrecadadoGeral = campanhas.reduce((acc, c) => acc + Number(c.arrecadado || 0), 0);
+
+  const criarCampanha = async (e) => {
+    e.preventDefault();
+    if (!novaCamp.titulo || !novaCamp.meta) return;
+    const { data } = await supabase
+      .from('campanhas_doacao')
+      .insert([{
+        titulo: novaCamp.titulo,
+        descricao: novaCamp.descricao,
+        meta: parseFloat(novaCamp.meta),
+        arrecadado: 0,
+        ativa: true
+      }])
+      .select()
+      .single();
+    if (data) {
+      setCampanhas([...campanhas, data]);
+      setNovaCamp({ titulo: '', descricao: '', meta: '' });
+      showToast('Nova campanha da Caixinha criada!');
+    }
+  };
 
   const registrarDoacao = async (e) => {
     e.preventDefault();
@@ -1282,86 +1352,127 @@ function DoacoesTab({ campanhas, setCampanhas, financeiro, setFinanceiro, curren
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <div className="lg:col-span-2 space-y-4">
-        <h2 className="font-bold text-lg text-stone-800 flex items-center gap-2">
-          <HeartHandshake className="w-5 h-5 text-amber-600" />
-          Campanhas & Metas da Casa Bendizer
-        </h2>
-
-        {campanhas.map(c => {
-          const pct = Math.min(100, Math.round((Number(c.arrecadado) / Number(c.meta)) * 100));
-          return (
-            <div key={c.id} className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm">
-              <div className="flex justify-between items-start mb-2">
-                <div>
-                  <h3 className="font-bold text-stone-800">{c.titulo}</h3>
-                  <p className="text-xs text-stone-500 mt-0.5">{c.descricao}</p>
-                </div>
-                <span className="text-xs font-bold bg-amber-100 text-amber-900 px-2.5 py-1 rounded-lg">
-                  {pct}% atingido
-                </span>
-              </div>
-
-              <div className="w-full bg-stone-100 h-3 rounded-full overflow-hidden my-3">
-                <div className="bg-emerald-700 h-full transition-all" style={{ width: `${pct}%` }} />
-              </div>
-
-              <div className="flex justify-between text-xs font-semibold text-stone-600">
-                <span>Arrecadado: R$ {Number(c.arrecadado).toFixed(2)}</span>
-                <span>Meta: R$ {Number(c.meta).toFixed(2)}</span>
-              </div>
-            </div>
-          );
-        })}
+    <div className="space-y-6">
+      {/* Banner de transparência visível para todos */}
+      <div className="bg-emerald-950 text-white p-6 rounded-2xl shadow-sm flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p className="text-xs uppercase tracking-wider text-amber-300 font-bold">Transparência • Caixinha da Casa Bendizer</p>
+          <h2 className="text-2xl font-bold mt-1">Total Arrecadado: R$ {totalArrecadadoGeral.toFixed(2)}</h2>
+          <p className="text-xs text-emerald-200 mt-1">Recursos destinados às velas, ervas, manutenção e trabalhos espirituais.</p>
+        </div>
       </div>
 
-      <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm h-fit">
-        <h3 className="font-bold text-base text-stone-800 mb-2">Contribuir com a Caixinha</h3>
-        <p className="text-xs text-stone-500 mb-4">
-          Registre sua contribuição voluntária para ajudar nas velas, ervas e manutenção da casa.
-        </p>
-
-        <form onSubmit={registrarDoacao} className="space-y-3">
-          {campanhas.length > 0 && (
-            <div>
-              <label className="block text-xs font-semibold text-stone-600 mb-1">Campanha</label>
-              <select
-                value={campanhaSelecionada}
-                onChange={e => setCampanhaSelecionada(e.target.value)}
-                className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
-              >
-                {campanhas.map(c => (
-                  <option key={c.id} value={c.id}>{c.titulo}</option>
-                ))}
-              </select>
-            </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-4">
+          {canCaixinha && (
+            <form onSubmit={criarCampanha} className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm space-y-3">
+              <h3 className="font-bold text-sm text-stone-800">Criar Nova Campanha / Meta (Equipe Caixinha)</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <input
+                  type="text"
+                  required
+                  placeholder="Título (Ex: Festa de Preto-Velho)"
+                  value={novaCamp.titulo}
+                  onChange={e => setNovaCamp({ ...novaCamp, titulo: e.target.value })}
+                  className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
+                />
+                <input
+                  type="text"
+                  placeholder="Descrição curta"
+                  value={novaCamp.descricao}
+                  onChange={e => setNovaCamp({ ...novaCamp, descricao: e.target.value })}
+                  className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
+                />
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  placeholder="Meta R$"
+                  value={novaCamp.meta}
+                  onChange={e => setNovaCamp({ ...novaCamp, meta: e.target.value })}
+                  className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
+                />
+              </div>
+              <button type="submit" className="px-4 py-2 bg-emerald-800 text-white text-xs font-semibold rounded-xl">
+                + Criar Campanha
+              </button>
+            </form>
           )}
 
-          <div>
-            <label className="block text-xs font-semibold text-stone-600 mb-1">Valor da Doação (R$)</label>
-            <input
-              type="number"
-              step="0.01"
-              required
-              placeholder="Ex: 25.00"
-              value={valorDoacao}
-              onChange={e => setValorDoacao(e.target.value)}
-              className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm"
-            />
-          </div>
+          {campanhas.map(c => {
+            const pct = Math.min(100, Math.round((Number(c.arrecadado) / Number(c.meta)) * 100));
+            return (
+              <div key={c.id} className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm">
+                <div className="flex justify-between items-start mb-2">
+                  <div>
+                    <h3 className="font-bold text-stone-800">{c.titulo}</h3>
+                    <p className="text-xs text-stone-500 mt-0.5">{c.descricao}</p>
+                  </div>
+                  <span className="text-xs font-bold bg-amber-100 text-amber-900 px-2.5 py-1 rounded-lg">
+                    {pct}% atingido
+                  </span>
+                </div>
 
-          <button type="submit" className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-emerald-950 font-bold rounded-xl text-xs transition">
-            Registrar Minha Doação
-          </button>
-        </form>
+                <div className="w-full bg-stone-100 h-3 rounded-full overflow-hidden my-3">
+                  <div className="bg-emerald-700 h-full transition-all" style={{ width: `${pct}%` }} />
+                </div>
+
+                <div className="flex justify-between text-xs font-semibold text-stone-600">
+                  <span>Arrecadado: R$ {Number(c.arrecadado).toFixed(2)}</span>
+                  <span>Meta: R$ {Number(c.meta).toFixed(2)}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm h-fit">
+          <h3 className="font-bold text-base text-stone-800 mb-2">Contribuir com a Caixinha</h3>
+          <p className="text-xs text-stone-500 mb-4">
+            Registre sua contribuição voluntária para ajudar nas velas, ervas e manutenção da casa.
+          </p>
+
+          <form onSubmit={registrarDoacao} className="space-y-3">
+            {campanhas.length > 0 && (
+              <div>
+                <label className="block text-xs font-semibold text-stone-600 mb-1">Campanha</label>
+                <select
+                  value={campanhaSelecionada}
+                  onChange={e => setCampanhaSelecionada(e.target.value)}
+                  className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
+                >
+                  {campanhas.map(c => (
+                    <option key={c.id} value={c.id}>{c.titulo}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-semibold text-stone-600 mb-1">Valor da Doação (R$)</label>
+              <input
+                type="number"
+                step="0.01"
+                required
+                placeholder="Ex: 25.00"
+                value={valorDoacao}
+                onChange={e => setValorDoacao(e.target.value)}
+                className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm"
+              />
+            </div>
+
+            <button type="submit" className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-emerald-950 font-bold rounded-xl text-xs transition">
+              Registrar Minha Doação
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   );
 }
 
-/* ===================== 6. ABA CURIMBA (PONTOS, ÁUDIO & YOUTUBE) ===================== */
-function CurimbaTab({ pontos, setPontos, isStaff, showToast }) {
+/* ===================== 6. ABA CURIMBA (ENVIO POR MÉDIUM + ANÁLISE) ===================== */
+function CurimbaTab({ pontos, setPontos, currentUser, canCurimba, showToast }) {
   const [busca, setBusca] = useState('');
   const [filtroLinha, setFiltroLinha] = useState('Todas');
   const [novoPonto, setNovoPonto] = useState({
@@ -1371,15 +1482,49 @@ function CurimbaTab({ pontos, setPontos, isStaff, showToast }) {
   const cadastrarPonto = async (e) => {
     e.preventDefault();
     if (!novoPonto.titulo || !novoPonto.letra) return;
-    const { data } = await supabase.from('curimba_pontos').insert([novoPonto]).select().single();
+
+    const statusInicial = canCurimba ? 'aprovado' : 'pendente';
+    const payload = {
+      ...novoPonto,
+      status: statusInicial,
+      enviado_por: currentUser?.nome || 'Médium'
+    };
+
+    const { data } = await supabase.from('curimba_pontos').insert([payload]).select().single();
     if (data) {
       setPontos([data, ...pontos]);
       setNovoPonto({ titulo: '', linha: 'Caboclos', toque: 'Samba de Caboclo', letra: '', link_youtube: '', link_audio: '' });
-      showToast('Ponto cantado salvo no caderno da Curimba!');
+      showToast(
+        canCurimba
+          ? 'Ponto cantado publicado no caderno da Curimba!'
+          : 'Ponto enviado para análise da equipe da Curimba!'
+      );
     }
   };
 
-  const pontosFiltrados = pontos.filter(p => {
+  const aprovarPonto = async (id) => {
+    const { data } = await supabase
+      .from('curimba_pontos')
+      .update({ status: 'aprovado' })
+      .eq('id', id)
+      .select()
+      .single();
+    if (data) {
+      setPontos(pontos.map(p => p.id === id ? data : p));
+      showToast('Ponto aprovado e publicado para toda a corrente!');
+    }
+  };
+
+  const recusarPonto = async (id) => {
+    await supabase.from('curimba_pontos').delete().eq('id', id);
+    setPontos(pontos.filter(p => p.id !== id));
+    showToast('Ponto removido.');
+  };
+
+  const pontosPendentes = pontos.filter(p => p.status === 'pendente');
+  const pontosAprovados = pontos.filter(p => (p.status || 'aprovado') === 'aprovado');
+
+  const pontosFiltrados = pontosAprovados.filter(p => {
     const matchBusca = p.titulo.toLowerCase().includes(busca.toLowerCase()) || p.letra.toLowerCase().includes(busca.toLowerCase());
     const matchLinha = filtroLinha === 'Todas' || p.linha === filtroLinha;
     return matchBusca && matchLinha;
@@ -1387,77 +1532,118 @@ function CurimbaTab({ pontos, setPontos, isStaff, showToast }) {
 
   return (
     <div className="space-y-6">
-      {isStaff && (
-        <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm">
-          <h2 className="font-bold text-base text-stone-800 mb-3 flex items-center gap-2">
-            <Music className="w-5 h-5 text-emerald-700" />
-            Cadastrar Novo Ponto na Curimba
-          </h2>
-          <form onSubmit={cadastrarPonto} className="space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <input
-                type="text"
-                required
-                placeholder="Nome do Ponto"
-                value={novoPonto.titulo}
-                onChange={e => setNovoPonto({ ...novoPonto, titulo: e.target.value })}
-                className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
-              />
-              <select
-                value={novoPonto.linha}
-                onChange={e => setNovoPonto({ ...novoPonto, linha: e.target.value })}
-                className="px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
-              >
-                <option>Abertura / Defumação</option>
-                <option>Oxalá</option>
-                <option>Caboclos</option>
-                <option>Pretos-Velhos</option>
-                <option>Erês / Crianças</option>
-                <option>Exu e Pombagira</option>
-                <option>Boiadeiros / Marinheiros</option>
-                <option>Encerramento</option>
-              </select>
-              <input
-                type="text"
-                placeholder="Toque (Ex: Congo, Nagô, IJexá)"
-                value={novoPonto.toque}
-                onChange={e => setNovoPonto({ ...novoPonto, toque: e.target.value })}
-                className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
-              />
-            </div>
-
-            <textarea
-              rows={3}
-              required
-              placeholder="Escreva a letra completa do ponto aqui..."
-              value={novoPonto.letra}
-              onChange={e => setNovoPonto({ ...novoPonto, letra: e.target.value })}
-              className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs"
-            />
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <input
-                type="url"
-                placeholder="Link do YouTube (opcional)"
-                value={novoPonto.link_youtube}
-                onChange={e => setNovoPonto({ ...novoPonto, link_youtube: e.target.value })}
-                className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
-              />
-              <input
-                type="url"
-                placeholder="Link de Áudio / SoundCloud / Drive (opcional)"
-                value={novoPonto.link_audio}
-                onChange={e => setNovoPonto({ ...novoPonto, link_audio: e.target.value })}
-                className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
-              />
-            </div>
-
-            <button type="submit" className="px-5 py-2 bg-emerald-800 text-white text-xs font-semibold rounded-xl">
-              + Salvar Ponto
-            </button>
-          </form>
+      {/* Fila de Análise (somente para quem tem permissão da Curimba / Admin) */}
+      {canCurimba && pontosPendentes.length > 0 && (
+        <div className="bg-amber-50 border border-amber-300 p-5 rounded-2xl space-y-3">
+          <h3 className="font-bold text-sm text-amber-950 flex items-center gap-2">
+            <Clock className="w-4 h-4 text-amber-700" />
+            Pontos Aguardando Análise ({pontosPendentes.length})
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {pontosPendentes.map(p => (
+              <div key={p.id} className="bg-white p-4 rounded-xl border border-amber-200 shadow-sm space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-[11px] font-bold bg-amber-100 text-amber-900 px-2 py-0.5 rounded">{p.linha}</span>
+                  <span className="text-[11px] text-stone-500">Enviado por: <strong>{p.enviado_por}</strong></span>
+                </div>
+                <h4 className="font-bold text-sm text-stone-800">{p.titulo}</h4>
+                <pre className="whitespace-pre-wrap font-sans text-xs text-stone-600 bg-stone-50 p-2.5 rounded-lg">{p.letra}</pre>
+                <div className="flex gap-2 pt-2">
+                  <button
+                    onClick={() => aprovarPonto(p.id)}
+                    className="flex-1 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg flex items-center justify-center gap-1"
+                  >
+                    <Check className="w-3.5 h-3.5" /> Aprovar Ponto
+                  </button>
+                  <button
+                    onClick={() => recusarPonto(p.id)}
+                    className="px-3 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-800 text-xs font-semibold rounded-lg flex items-center gap-1"
+                  >
+                    <X className="w-3.5 h-3.5" /> Recusar
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
+
+      {/* Formulário aberto a TODOS os médiuns (vai para análise se não for da equipe Curimba) */}
+      <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm">
+        <h2 className="font-bold text-base text-stone-800 mb-1 flex items-center gap-2">
+          <Music className="w-5 h-5 text-emerald-700" />
+          {canCurimba ? 'Cadastrar Novo Ponto na Curimba' : 'Sugerir / Enviar Ponto para Análise'}
+        </h2>
+        {!canCurimba && (
+          <p className="text-xs text-stone-500 mb-3">
+            Os pontos enviados por médiuns passam pela revisão da equipe de Curimba antes de ficarem visíveis para todos.
+          </p>
+        )}
+        <form onSubmit={cadastrarPonto} className="space-y-3 mt-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <input
+              type="text"
+              required
+              placeholder="Nome do Ponto"
+              value={novoPonto.titulo}
+              onChange={e => setNovoPonto({ ...novoPonto, titulo: e.target.value })}
+              className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
+            />
+            <select
+              value={novoPonto.linha}
+              onChange={e => setNovoPonto({ ...novoPonto, linha: e.target.value })}
+              className="px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
+            >
+              <option>Abertura / Defumação</option>
+              <option>Oxalá</option>
+              <option>Caboclos</option>
+              <option>Pretos-Velhos</option>
+              <option>Erês / Crianças</option>
+              <option>Mestres / Mestras</option>
+              <option>Exu e Pombagira</option>
+              <option>Boiadeiros / Marinheiros</option>
+              <option>Encerramento</option>
+            </select>
+            <input
+              type="text"
+              placeholder="Toque (Ex: Congo, Nagô, Ijexá)"
+              value={novoPonto.toque}
+              onChange={e => setNovoPonto({ ...novoPonto, toque: e.target.value })}
+              className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
+            />
+          </div>
+
+          <textarea
+            rows={3}
+            required
+            placeholder="Escreva a letra completa do ponto aqui..."
+            value={novoPonto.letra}
+            onChange={e => setNovoPonto({ ...novoPonto, letra: e.target.value })}
+            className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs"
+          />
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <input
+              type="url"
+              placeholder="Link do YouTube (opcional)"
+              value={novoPonto.link_youtube}
+              onChange={e => setNovoPonto({ ...novoPonto, link_youtube: e.target.value })}
+              className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
+            />
+            <input
+              type="url"
+              placeholder="Link de Áudio / SoundCloud / Drive (opcional)"
+              value={novoPonto.link_audio}
+              onChange={e => setNovoPonto({ ...novoPonto, link_audio: e.target.value })}
+              className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
+            />
+          </div>
+
+          <button type="submit" className="px-5 py-2 bg-emerald-800 text-white text-xs font-semibold rounded-xl">
+            {canCurimba ? '+ Publicar Ponto' : '+ Enviar para Análise'}
+          </button>
+        </form>
+      </div>
 
       {/* Filtros */}
       <div className="flex flex-wrap gap-3">
@@ -1479,16 +1665,17 @@ function CurimbaTab({ pontos, setPontos, isStaff, showToast }) {
           <option>Caboclos</option>
           <option>Pretos-Velhos</option>
           <option>Erês / Crianças</option>
+          <option>Mestres / Mestras</option>
           <option>Exu e Pombagira</option>
           <option>Boiadeiros / Marinheiros</option>
           <option>Encerramento</option>
         </select>
       </div>
 
-      {/* Lista de Pontos */}
+      {/* Lista de Pontos Aprovados */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {pontosFiltrados.length === 0 ? (
-          <p className="text-sm text-stone-500 col-span-2 text-center py-8">Nenhum ponto cadastrado nesta linha ainda.</p>
+          <p className="text-sm text-stone-500 col-span-2 text-center py-8">Nenhum ponto aprovado nesta linha ainda.</p>
         ) : (
           pontosFiltrados.map(p => (
             <div key={p.id} className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm flex flex-col justify-between">
@@ -1541,109 +1728,297 @@ function CurimbaTab({ pontos, setPontos, isStaff, showToast }) {
   );
 }
 
-/* ===================== 7. ABA BIBLIOTECA ===================== */
-function BibliotecaTab({ livros, setLivros, mediums, currentUser, isStaff, showToast }) {
-  const [novoLivro, setNovoLivro] = useState({ titulo: '', autor: '', categoria: 'Fundamentos' });
+/* ===================== 7. ABA BIBLIOTECA (20 DIAS, RENOVAÇÃO, RESERVA & ALERTAS) ===================== */
+function BibliotecaTab({ livros, setLivros, mediums, notificacoes, setNotificacoes, currentUser, canBiblioteca, showToast }) {
+  const [novoLivro, setNovoLivro] = useState({ titulo: '', autor: '', categoria: 'Fundamentos', unidades: 1 });
+
+  const adicionarDias = (dias) => {
+    const d = new Date();
+    d.setDate(d.getDate() + dias);
+    return d.toISOString().slice(0, 10);
+  };
+
+  const hojeStr = new Date().toISOString().slice(0, 10);
 
   const adicionarLivro = async (e) => {
     e.preventDefault();
     if (!novoLivro.titulo) return;
-    const { data } = await supabase.from('biblioteca').insert([novoLivro]).select().single();
+    const payload = {
+      titulo: novoLivro.titulo,
+      autor: novoLivro.autor,
+      categoria: novoLivro.categoria,
+      unidades: parseInt(novoLivro.unidades, 10) || 1,
+      status: 'Disponível',
+      reservas: []
+    };
+    const { data } = await supabase.from('biblioteca').insert([payload]).select().single();
     if (data) {
       setLivros([...livros, data]);
-      setNovoLivro({ titulo: '', autor: '', categoria: 'Fundamentos' });
+      setNovoLivro({ titulo: '', autor: '', categoria: 'Fundamentos', unidades: 1 });
       showToast('Livro adicionado ao acervo da Casa Bendizer!');
     }
   };
 
-  const emprestarOuDevolver = async (livro) => {
-    if (livro.status === 'Disponível') {
-      const { data } = await supabase
-        .from('biblioteca')
-        .update({ status: 'Emprestado', emprestado_para: currentUser?.id })
-        .eq('id', livro.id)
-        .select()
-        .single();
-      if (data) {
-        setLivros(livros.map(l => l.id === livro.id ? data : l));
-        showToast('Livro reservado/emprestado para você!');
-      }
-    } else if (isStaff || livro.emprestado_para === currentUser?.id) {
-      const { data } = await supabase
-        .from('biblioteca')
-        .update({ status: 'Disponível', emprestado_para: null })
-        .eq('id', livro.id)
-        .select()
-        .single();
-      if (data) {
-        setLivros(livros.map(l => l.id === livro.id ? data : l));
-        showToast('Devolução registrada com sucesso!');
-      }
+  const pegarEmprestado = async (livro) => {
+    const hoje = new Date().toISOString().slice(0, 10);
+    const devolucao = adicionarDias(20);
+    const reservasAtualizadas = (livro.reservas || []).filter(r => r.medium_id !== currentUser?.id);
+
+    const { data } = await supabase
+      .from('biblioteca')
+      .update({
+        status: 'Emprestado',
+        emprestado_para: currentUser?.id,
+        data_emprestimo: hoje,
+        data_devolucao_prevista: devolucao,
+        reservas: reservasAtualizadas
+      })
+      .eq('id', livro.id)
+      .select()
+      .single();
+
+    if (data) {
+      setLivros(livros.map(l => l.id === livro.id ? data : l));
+      showToast(`Empréstimo registrado! Devolução prevista em 20 dias (${devolucao.split('-').reverse().join('/')}).`);
     }
   };
 
+  const renovarEmprestimo = async (livro) => {
+    const novaDevolucao = adicionarDias(20);
+    const { data } = await supabase
+      .from('biblioteca')
+      .update({ data_devolucao_prevista: novaDevolucao })
+      .eq('id', livro.id)
+      .select()
+      .single();
+
+    if (data) {
+      setLivros(livros.map(l => l.id === livro.id ? data : l));
+      showToast(`Empréstimo renovado por mais 20 dias! Novo prazo: ${novaDevolucao.split('-').reverse().join('/')}.`);
+    }
+  };
+
+  const devolverLivro = async (livro) => {
+    const { data } = await supabase
+      .from('biblioteca')
+      .update({
+        status: 'Disponível',
+        emprestado_para: null,
+        data_emprestimo: null,
+        data_devolucao_prevista: null
+      })
+      .eq('id', livro.id)
+      .select()
+      .single();
+
+    if (data) {
+      setLivros(livros.map(l => l.id === livro.id ? data : l));
+      showToast('Devolução registrada com sucesso!');
+    }
+  };
+
+  const reservarLivro = async (livro) => {
+    const atuais = livro.reservas || [];
+    if (atuais.some(r => r.medium_id === currentUser?.id)) {
+      showToast('Você já está na fila de reserva deste livro.');
+      return;
+    }
+    const novasReservas = [...atuais, { medium_id: currentUser?.id, nome: currentUser?.nome, data: hojeStr }];
+    const { data } = await supabase
+      .from('biblioteca')
+      .update({ reservas: novasReservas })
+      .eq('id', livro.id)
+      .select()
+      .single();
+
+    if (data) {
+      setLivros(livros.map(l => l.id === livro.id ? data : l));
+      showToast('Reserva registrada! Você será avisado(a) quando o livro voltar.');
+    }
+  };
+
+  const notificarVencimento = async (livro, portador) => {
+    const msg = `Olá, ${portador?.nome || 'Médium'}! O prazo de 20 dias do livro "${livro.titulo}" da Biblioteca da Casa Bendizer venceu em ${livro.data_devolucao_prevista?.split('-').reverse().join('/')}. Por favor, devolva ou renove na plataforma.`;
+
+    const { data } = await supabase
+      .from('notificacoes')
+      .insert([{ titulo: `Devolução de Livro: ${livro.titulo}`, mensagem: msg, destinatario_id: portador?.id || null }])
+      .select()
+      .single();
+
+    if (data) setNotificacoes([data, ...notificacoes]);
+
+    if (portador?.telefone) {
+      const num = portador.telefone.replace(/\D/g, '');
+      window.open(`https://wa.me/55${num}?text=${encodeURIComponent(msg)}`, '_blank');
+    }
+    showToast('Notificação de vencimento enviada!');
+  };
+
+  const livrosVencidos = livros.filter(
+    l => l.status === 'Emprestado' && l.data_devolucao_prevista && l.data_devolucao_prevista < hojeStr
+  );
+
   return (
     <div className="space-y-6">
-      {isStaff && (
+      {/* Alerta de livros vencidos */}
+      {livrosVencidos.length > 0 && (
+        <div className="bg-rose-50 border border-rose-300 p-4 rounded-2xl space-y-2">
+          <h3 className="font-bold text-sm text-rose-900 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-600" />
+            Empréstimos com Prazo de 20 Dias Vencido ({livrosVencidos.length})
+          </h3>
+          {livrosVencidos.map(l => {
+            const portador = mediums.find(m => m.id === l.emprestado_para);
+            return (
+              <div key={l.id} className="flex flex-wrap items-center justify-between gap-2 bg-white p-3 rounded-xl border border-rose-200 text-xs">
+                <span>
+                  <strong>{l.titulo}</strong> está com <strong>{portador?.nome || 'Médium'}</strong> (venceu em {l.data_devolucao_prevista?.split('-').reverse().join('/')})
+                </span>
+                {(canBiblioteca || l.emprestado_para === currentUser?.id) && (
+                  <button
+                    onClick={() => notificarVencimento(l, portador)}
+                    className="px-3 py-1.5 bg-rose-700 hover:bg-rose-800 text-white font-semibold rounded-lg"
+                  >
+                    Enviar Notificação / WhatsApp
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Cadastro de Livro (somente Equipe Biblioteca / Admin) */}
+      {canBiblioteca && (
         <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
-          <h2 className="font-bold text-base text-stone-800 mb-3">Cadastrar Novo Livro / Apostila</h2>
-          <form onSubmit={adicionarLivro} className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+          <h2 className="font-bold text-base text-stone-800 mb-3">Cadastrar Livro na Biblioteca</h2>
+          <form onSubmit={adicionarLivro} className="grid grid-cols-1 sm:grid-cols-5 gap-2">
             <input
               type="text"
               required
               placeholder="Título da Obra"
               value={novoLivro.titulo}
               onChange={e => setNovoLivro({ ...novoLivro, titulo: e.target.value })}
-              className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
+              className="sm:col-span-2 px-3 py-2 border border-stone-200 rounded-xl text-xs"
             />
             <input
               type="text"
+              required
               placeholder="Autor / Espírito"
               value={novoLivro.autor}
               onChange={e => setNovoLivro({ ...novoLivro, autor: e.target.value })}
               className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
             />
-            <input
-              type="text"
-              placeholder="Categoria (Ex: Ervas, Orixás)"
-              value={novoLivro.categoria}
-              onChange={e => setNovoLivro({ ...novoLivro, categoria: e.target.value })}
-              className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
-            />
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={1}
+                required
+                title="Quantidade de unidades"
+                placeholder="Qtd"
+                value={novoLivro.unidades}
+                onChange={e => setNovoLivro({ ...novoLivro, unidades: e.target.value })}
+                className="w-20 px-3 py-2 border border-stone-200 rounded-xl text-xs"
+              />
+              <input
+                type="text"
+                placeholder="Categoria"
+                value={novoLivro.categoria}
+                onChange={e => setNovoLivro({ ...novoLivro, categoria: e.target.value })}
+                className="flex-1 px-3 py-2 border border-stone-200 rounded-xl text-xs"
+              />
+            </div>
             <button type="submit" className="bg-emerald-800 text-white text-xs font-semibold rounded-xl py-2">
-              + Adicionar ao Acervo
+              + Cadastrar Livro
             </button>
           </form>
         </div>
       )}
 
+      {/* Acervo */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {livros.length === 0 ? (
           <p className="text-sm text-stone-500 col-span-3 text-center py-8">Nenhum livro cadastrado na biblioteca ainda.</p>
         ) : (
           livros.map(l => {
             const portador = mediums.find(m => m.id === l.emprestado_para);
+            const isMine = l.emprestado_para === currentUser?.id;
+            const vencido = l.status === 'Emprestado' && l.data_devolucao_prevista && l.data_devolucao_prevista < hojeStr;
+            const reservas = l.reservas || [];
+
             return (
               <div key={l.id} className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm flex flex-col justify-between">
                 <div>
-                  <span className="text-[10px] uppercase font-bold tracking-wider text-stone-400">{l.categoria}</span>
+                  <div className="flex items-center justify-between text-[10px] uppercase font-bold tracking-wider text-stone-400">
+                    <span>{l.categoria || 'Acervo'}</span>
+                    <span>{l.unidades || 1} unid.</span>
+                  </div>
                   <h3 className="font-bold text-stone-800 text-sm mt-1">{l.titulo}</h3>
                   <p className="text-xs text-stone-500 mt-0.5">{l.autor}</p>
+
+                  {l.status === 'Emprestado' && (
+                    <div className={`mt-3 p-2.5 rounded-xl text-xs border ${vencido ? 'bg-rose-50 border-rose-200 text-rose-900' : 'bg-amber-50 border-amber-200 text-amber-950'}`}>
+                      <p><strong>Com:</strong> {portador?.nome || 'Médium'}</p>
+                      {l.data_devolucao_prevista && (
+                        <p className="mt-0.5">
+                          <strong>Devolução (20 dias):</strong> {l.data_devolucao_prevista.split('-').reverse().join('/')}
+                          {vencido && <span className="ml-1 font-bold text-rose-700">(VENCIDO)</span>}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {reservas.length > 0 && (
+                    <p className="text-[11px] text-emerald-800 mt-2 font-medium">
+                      Fila de reserva: {reservas.map(r => r.nome).join(', ')}
+                    </p>
+                  )}
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-stone-100 flex items-center justify-between">
+                <div className="mt-4 pt-3 border-t border-stone-100 flex flex-wrap items-center justify-between gap-2">
                   <span className={`text-xs font-bold ${l.status === 'Disponível' ? 'text-emerald-700' : 'text-amber-700'}`}>
-                    {l.status === 'Disponível' ? '● Disponível' : `● Com ${portador?.nome || 'Médium'}`}
+                    {l.status === 'Disponível' ? '● Disponível' : '● Emprestado'}
                   </span>
 
-                  {(l.status === 'Disponível' || isStaff || l.emprestado_para === currentUser?.id) && (
-                    <button
-                      onClick={() => emprestarOuDevolver(l)}
-                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-stone-100 hover:bg-stone-200 text-stone-800"
-                    >
-                      {l.status === 'Disponível' ? 'Pegar Emprestado' : 'Devolver'}
-                    </button>
-                  )}
+                  <div className="flex flex-wrap gap-1.5">
+                    {l.status === 'Disponível' && (
+                      <button
+                        onClick={() => pegarEmprestado(l)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-800 hover:bg-emerald-900 text-white"
+                      >
+                        Pegar (20 dias)
+                      </button>
+                    )}
+
+                    {l.status === 'Emprestado' && (isMine || canBiblioteca) && (
+                      <>
+                        {reservas.length === 0 && (
+                          <button
+                            onClick={() => renovarEmprestimo(l)}
+                            className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-100 hover:bg-amber-200 text-amber-900 flex items-center gap-1"
+                          >
+                            <RefreshCw className="w-3 h-3" /> Renovar
+                          </button>
+                        )}
+                        <button
+                          onClick={() => devolverLivro(l)}
+                          className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-stone-200 hover:bg-stone-300 text-stone-800"
+                        >
+                          Devolver
+                        </button>
+                      </>
+                    )}
+
+                    {l.status === 'Emprestado' && !isMine && (
+                      <button
+                        onClick={() => reservarLivro(l)}
+                        className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 border border-emerald-300 text-emerald-900 hover:bg-emerald-100 flex items-center gap-1"
+                      >
+                        <BookmarkPlus className="w-3 h-3" /> Reservar
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -1655,7 +2030,7 @@ function BibliotecaTab({ livros, setLivros, mediums, currentUser, isStaff, showT
 }
 
 /* ===================== 8. ABA AVISOS & LEMBRETES WHATSAPP ===================== */
-function MensagensTab({ notificacoes, setNotificacoes, mediums, bebidas, giras, currentUser, isStaff, showToast }) {
+function MensagensTab({ notificacoes, setNotificacoes, mediums, bebidas, canCadastros, canCaixinha, showToast }) {
   const [titulo, setTitulo] = useState('');
   const [mensagem, setMensagem] = useState('');
 
@@ -1684,12 +2059,12 @@ function MensagensTab({ notificacoes, setNotificacoes, mediums, bebidas, giras, 
   };
 
   const pendentesBebida = mediums.filter(m => !bebidas.some(b => b.medium_id === m.id && b.pago));
+  const canPost = canCadastros || canCaixinha;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {isStaff && (
+      {canPost && (
         <div className="space-y-6">
-          {/* Publicar no Mural Interno */}
           <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm">
             <h2 className="font-bold text-base text-stone-800 mb-3 flex items-center gap-2">
               <Bell className="w-5 h-5 text-emerald-700" />
@@ -1718,42 +2093,42 @@ function MensagensTab({ notificacoes, setNotificacoes, mediums, bebidas, giras, 
             </form>
           </div>
 
-          {/* Lembretes Rápidos via WhatsApp */}
-          <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm">
-            <h2 className="font-bold text-base text-stone-800 mb-2 flex items-center gap-2">
-              <MessageCircle className="w-5 h-5 text-green-600" />
-              Lembretes Rápidos no WhatsApp
-            </h2>
-            <p className="text-xs text-stone-500 mb-4">
-              Clique para enviar lembrete direto no WhatsApp dos médiuns pendentes na caixinha de bebidas ({MES_ATUAL}):
-            </p>
+          {canCaixinha && (
+            <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm">
+              <h2 className="font-bold text-base text-stone-800 mb-2 flex items-center gap-2">
+                <MessageCircle className="w-5 h-5 text-green-600" />
+                Lembretes Rápidos no WhatsApp (Bebidas)
+              </h2>
+              <p className="text-xs text-stone-500 mb-4">
+                Médiuns pendentes na caixinha de bebidas ({MES_ATUAL}):
+              </p>
 
-            {pendentesBebida.length === 0 ? (
-              <p className="text-xs text-emerald-700 font-semibold">Todos os médiuns já contribuíram este mês!</p>
-            ) : (
-              <div className="space-y-2">
-                {pendentesBebida.map(m => (
-                  <div key={m.id} className="flex items-center justify-between p-2.5 rounded-xl bg-stone-50 border border-stone-200 text-xs">
-                    <span className="font-semibold text-stone-800">{m.nome}</span>
-                    <button
-                      onClick={() => abrirWhatsApp(
-                        m.telefone,
-                        `Axé, ${m.nome}! Passando para lembrar da contribuição mensal de R$ 10,00 da Caixinha de Bebidas da Casa Bendizer (${MES_ATUAL}).`
-                      )}
-                      className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg flex items-center gap-1"
-                    >
-                      <Send className="w-3 h-3" /> Cobrar no WhatsApp
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+              {pendentesBebida.length === 0 ? (
+                <p className="text-xs text-emerald-700 font-semibold">Todos os médiuns já contribuíram este mês!</p>
+              ) : (
+                <div className="space-y-2">
+                  {pendentesBebida.map(m => (
+                    <div key={m.id} className="flex items-center justify-between p-2.5 rounded-xl bg-stone-50 border border-stone-200 text-xs">
+                      <span className="font-semibold text-stone-800">{m.nome}</span>
+                      <button
+                        onClick={() => abrirWhatsApp(
+                          m.telefone,
+                          `Axé, ${m.nome}! Passando para lembrar da contribuição mensal de R$ 10,00 da Caixinha de Bebidas da Casa Bendizer (${MES_ATUAL}).`
+                        )}
+                        className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg flex items-center gap-1"
+                      >
+                        <Send className="w-3 h-3" /> Cobrar no WhatsApp
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Mural de Avisos */}
-      <div className={`${isStaff ? '' : 'lg:col-span-2'} bg-white p-6 rounded-2xl border border-stone-200 shadow-sm`}>
+      <div className={`${canPost ? '' : 'lg:col-span-2'} bg-white p-6 rounded-2xl border border-stone-200 shadow-sm`}>
         <h2 className="font-bold text-base text-stone-800 mb-4">Mural de Avisos da Casa Bendizer</h2>
         {notificacoes.length === 0 ? (
           <p className="text-xs text-stone-500 text-center py-8">Nenhum comunicado publicado ainda.</p>
