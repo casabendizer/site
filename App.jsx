@@ -1,19 +1,103 @@
 import React, { useState, useEffect } from 'react';
 import {
   Home, Users, Wine, DollarSign, BookOpen, Music, HeartHandshake, Bell,
-  LogOut, Plus, Check, Copy, ExternalLink, Calendar, Cake, Shield,
-  HeartPulse, Sparkles, Search, Trash2, Edit3, Send, MessageCircle,
-  AlertCircle, CheckCircle2, UserCheck, Lock, Mail
+  LogOut, Copy, ExternalLink, Calendar, Cake, Shield,
+  HeartPulse, Sparkles, Trash2, Send, MessageCircle,
+  AlertCircle, CheckCircle2, Lock, Mail, Clock, RefreshCw, BookmarkPlus,
+  Check, X, Pencil, PlusCircle, ArrowUpDown, Link2, Settings, Info
 } from 'lucide-react';
 import { supabase, isConfigured } from './supabaseClient';
 
-const MES_ATUAL = new Date().toISOString().slice(0, 7); // Ex: '2026-11'
+const MES_ATUAL = new Date().toISOString().slice(0, 7);
 const MES_NUMERO = new Date().getMonth() + 1;
+const DIA_HOJE = new Date().getDate();
+const NOME_MES_ATUAL = new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+
+const MODULOS_PERMISSAO = [
+  { id: 'cadastros', label: 'Cadastros' },
+  { id: 'caixinha', label: 'Caixinha' },
+  { id: 'bebidas', label: 'Bebidas' },
+  { id: 'biblioteca', label: 'Biblioteca' },
+  { id: 'curimba', label: 'Curimba' },
+];
+
+const LINHAS_CURIMBA_PADRAO = [
+  'Abertura / Defumação',
+  'Oxalá',
+  'Caboclos',
+  'Pretos-Velhos',
+  'Erês / Crianças',
+  'Boiadeiros',
+  'Marinheiros',
+  'Baianos',
+  'Ciganos',
+  'Malandros',
+  'Mestres',
+  'Mestras',
+  'Exu',
+  'Pombagira',
+  'Encerramento'
+];
+
+const LINHAS_ENTIDADE_PADRAO = [
+  'Caboclo(a)',
+  'Preto(a)-Velho(a)',
+  'Erê / Criança',
+  'Boiadeiro',
+  'Marinheiro',
+  'Baiano(a)',
+  'Cigano(a)',
+  'Malandro(a)',
+  'Mestre',
+  'Mestra',
+  'Exu',
+  'Pombagira'
+];
+
+const CATEGORIAS_BIBLIOTECA_PADRAO = [
+  'Fundamentos',
+  'Mediunidade',
+  'Ervas & Banhos',
+  'Orixás & Linhas',
+  'História & Teologia'
+];
+
+const CATEGORIAS_CAIXINHA_PADRAO = [
+  'Manutenção & Velas',
+  'Festas & Obrigações',
+  'Obras & Reformas',
+  'Caridade & Ação Social'
+];
+
+const CARGOS_PADRAO = [
+  'Médium de Corrente',
+  'Cambono(a)',
+  'Ogã / Curimbeiro(a)',
+  'Mãe / Pai Pequeno(a)',
+  'Secretaria',
+  'Administração Geral'
+];
+
+const CONFIG_DEFAULT = {
+  id: 1,
+  nome_casa: 'Casa Bendizer',
+  endereco_casa: '',
+  horario_gira_padrao: '19:30',
+  aviso_boas_vindas: '',
+  chave_pix: '',
+  favorecido_pix: '',
+  valor_mensalidade_padrao: 50,
+  dia_vencimento: 10,
+  prazo_biblioteca_dias: 20,
+  permitir_auto_cadastro: true,
+  email_admin_boletim: '',
+  ultimo_boletim_enviado: ''
+};
 
 export default function App() {
   const [session, setSession] = useState(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
-  const [authMode, setAuthMode] = useState('login'); // 'login' | 'signup'
+  const [authMode, setAuthMode] = useState('login');
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authNome, setAuthNome] = useState('');
@@ -21,12 +105,10 @@ export default function App() {
   const [authNascimento, setAuthNascimento] = useState('');
   const [authError, setAuthError] = useState('');
 
-  // Perfil do usuário logado e dados gerais
   const [currentUserProfile, setCurrentUserProfile] = useState(null);
   const [activeTab, setActiveTab] = useState('home');
   const [toast, setToast] = useState('');
 
-  // Tabelas do banco
   const [mediums, setMediums] = useState([]);
   const [bebidas, setBebidas] = useState([]);
   const [financeiro, setFinanceiro] = useState([]);
@@ -35,10 +117,13 @@ export default function App() {
   const [pontos, setPontos] = useState([]);
   const [giras, setGiras] = useState([]);
   const [notificacoes, setNotificacoes] = useState([]);
+  const [listasCustom, setListasCustom] = useState([]);
+  const [linksImportantes, setLinksImportantes] = useState([]);
+  const [configCasa, setConfigCasa] = useState(CONFIG_DEFAULT);
 
   const showToast = (msg) => {
     setToast(msg);
-    setTimeout(() => setToast(''), 3500);
+    setTimeout(() => setToast(''), 3800);
   };
 
   useEffect(() => {
@@ -46,6 +131,11 @@ export default function App() {
       setLoadingAuth(false);
       return;
     }
+
+    // Carrega configuração pública básica (para saber se auto-cadastro está ativo na tela de login)
+    supabase.from('configuracoes_casa').select('*').eq('id', 1).maybeSingle().then(({ data }) => {
+      if (data) setConfigCasa({ ...CONFIG_DEFAULT, ...data });
+    });
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -69,7 +159,7 @@ export default function App() {
     setLoadingAuth(true);
     try {
       const [
-        resMediums, resBebidas, resFin, resCamp, resLivros, resPontos, resGiras, resNotif
+        resMediums, resBebidas, resFin, resCamp, resLivros, resPontos, resGiras, resNotif, resListas, resLinks, resConfig
       ] = await Promise.all([
         supabase.from('mediums').select('*').order('nome'),
         supabase.from('caixinha_bebidas').select('*').eq('mes_referencia', MES_ATUAL),
@@ -79,6 +169,9 @@ export default function App() {
         supabase.from('curimba_pontos').select('*').order('created_at', { ascending: false }),
         supabase.from('calendario_giras').select('*').order('data_gira'),
         supabase.from('notificacoes').select('*').order('created_at', { ascending: false }),
+        supabase.from('configuracoes_listas').select('*').order('created_at'),
+        supabase.from('links_importantes').select('*').order('created_at'),
+        supabase.from('configuracoes_casa').select('*').eq('id', 1).maybeSingle(),
       ]);
 
       const allMediums = resMediums.data || [];
@@ -90,8 +183,12 @@ export default function App() {
       setPontos(resPontos.data || []);
       setGiras(resGiras.data || []);
       setNotificacoes(resNotif.data || []);
+      setListasCustom(resListas.data || []);
+      setLinksImportantes(resLinks.data || []);
+      if (resConfig.data) {
+        setConfigCasa({ ...CONFIG_DEFAULT, ...resConfig.data });
+      }
 
-      // Encontrar ou criar perfil do usuário logado
       let myProfile = allMediums.find(m => m.user_id === user.id || m.email === user.email);
       if (!myProfile) {
         const isFirstUser = allMediums.length === 0;
@@ -101,8 +198,10 @@ export default function App() {
           email: user.email,
           telefone: user.user_metadata?.telefone || '',
           data_nascimento: user.user_metadata?.data_nascimento || null,
-          cargo: isFirstUser ? 'Dirigente / Administração' : 'Médium de Corrente',
+          cargo: isFirstUser ? 'Administração Geral' : 'Médium de Corrente',
           nivel_acesso: isFirstUser ? 'admin' : 'medium',
+          status_medium: 'Ativo',
+          permissoes: [],
           ritos: [],
           entidades: []
         };
@@ -122,6 +221,43 @@ export default function App() {
     }
   };
 
+  const adicionarItemLista = async (tipo, valor) => {
+    const limpo = valor.trim();
+    if (!limpo) return;
+    const { data, error } = await supabase
+      .from('configuracoes_listas')
+      .insert([{ tipo, valor: limpo }])
+      .select()
+      .single();
+    if (!error && data) {
+      setListasCustom([...listasCustom, data]);
+      showToast(`"${limpo}" adicionado às opções!`);
+    }
+  };
+
+  const removerItemLista = async (id) => {
+    await supabase.from('configuracoes_listas').delete().eq('id', id);
+    setListasCustom(listasCustom.filter(l => l.id !== id));
+    showToast('Opção removida.');
+  };
+
+  const salvarConfigCasa = async (novasConfigs) => {
+    const { data, error } = await supabase
+      .from('configuracoes_casa')
+      .upsert([{ id: 1, ...novasConfigs, updated_at: new Date().toISOString() }])
+      .select()
+      .single();
+
+    if (!error && data) {
+      setConfigCasa({ ...CONFIG_DEFAULT, ...data });
+      showToast('Configurações salvas com sucesso!');
+      return true;
+    } else {
+      showToast('Erro ao salvar configurações: ' + (error?.message || 'verifique o SQL no Supabase.'));
+      return false;
+    }
+  };
+
   const handleAuth = async (e) => {
     e.preventDefault();
     setAuthError('');
@@ -132,6 +268,10 @@ export default function App() {
       });
       if (error) setAuthError('E-mail ou senha incorretos. Verifique seus dados.');
     } else {
+      if (configCasa.permitir_auto_cadastro === false) {
+        setAuthError('Novos cadastros estão pausados pela Administração da casa.');
+        return;
+      }
       const { error } = await supabase.auth.signUp({
         email: authEmail,
         password: authPassword,
@@ -159,7 +299,7 @@ export default function App() {
           <AlertCircle className="w-12 h-12 text-amber-600 mx-auto mb-3" />
           <h1 className="text-xl font-bold text-stone-800 mb-2">Configuração Pendente</h1>
           <p className="text-sm text-stone-600">
-            As chaves <code>VITE_SUPABASE_URL</code> e <code>VITE_SUPABASE_ANON_KEY</code> ainda não foram adicionadas nas variáveis de ambiente da Vercel.
+            As chaves <code>VITE_SUPABASE_URL</code> e <code>VITE_SUPABASE_ANON_KEY</code> ainda não foram configuradas.
           </p>
         </div>
       </div>
@@ -177,7 +317,6 @@ export default function App() {
     );
   }
 
-  // TELA DE LOGIN / CADASTRO
   if (!session) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-emerald-950 via-stone-900 to-amber-950 flex items-center justify-center p-4">
@@ -186,7 +325,7 @@ export default function App() {
             <div className="w-14 h-14 bg-amber-400/20 border border-amber-300/40 rounded-2xl flex items-center justify-center mx-auto mb-3">
               <Sparkles className="w-7 h-7 text-amber-300" />
             </div>
-            <h1 className="text-2xl font-bold tracking-tight">Casa Bendizer</h1>
+            <h1 className="text-2xl font-bold tracking-tight">{configCasa.nome_casa || 'Casa Bendizer'}</h1>
             <p className="text-emerald-200 text-sm mt-1">Portal de Gestão e Corrente Mediúnica</p>
           </div>
 
@@ -296,24 +435,60 @@ export default function App() {
     );
   }
 
+  // Permissões separadas por setor
   const role = currentUserProfile?.nivel_acesso || 'medium';
+  const perms = currentUserProfile?.permissoes || [];
   const isAdmin = role === 'admin';
-  const isStaff = role === 'admin' || role === 'secretaria';
+  const isSecretaria = role === 'secretaria';
+
+  const canCadastros = isAdmin || isSecretaria || perms.includes('cadastros');
+  const canCaixinha = isAdmin || isSecretaria || perms.includes('caixinha');
+  const canBebidas = isAdmin || isSecretaria || perms.includes('bebidas');
+  const canBiblioteca = isAdmin || isSecretaria || perms.includes('biblioteca');
+  const canCurimba = isAdmin || isSecretaria || perms.includes('curimba');
+
+  // Listas dinâmicas combinando padrão + cadastradas nas Configurações
+  const linhasCurimba = Array.from(new Set([
+    ...LINHAS_CURIMBA_PADRAO,
+    ...listasCustom.filter(l => l.tipo === 'linha_curimba').map(l => l.valor)
+  ]));
+
+  const linhasEntidade = Array.from(new Set([
+    ...LINHAS_ENTIDADE_PADRAO,
+    ...listasCustom.filter(l => l.tipo === 'linha_entidade').map(l => l.valor)
+  ]));
+
+  const categoriasBiblioteca = Array.from(new Set([
+    ...CATEGORIAS_BIBLIOTECA_PADRAO,
+    ...listasCustom.filter(l => l.tipo === 'categoria_biblioteca').map(l => l.valor)
+  ]));
+
+  const categoriasCaixinha = Array.from(new Set([
+    ...CATEGORIAS_CAIXINHA_PADRAO,
+    ...listasCustom.filter(l => l.tipo === 'categoria_caixinha').map(l => l.valor)
+  ]));
+
+  const cargosLista = Array.from(new Set([
+    ...CARGOS_PADRAO,
+    ...listasCustom.filter(l => l.tipo === 'cargo_casa').map(l => l.valor)
+  ]));
+
+  const boletimPendenteMes = isAdmin && configCasa.ultimo_boletim_enviado !== MES_ATUAL;
 
   const navItems = [
     { id: 'home', label: 'Início', icon: Home },
-    { id: 'mediums', label: isStaff ? 'Médiuns' : 'Minha Ficha', icon: Users },
-    { id: 'bebidas', label: 'Bebidas (R$ 10)', icon: Wine },
-    ...(isStaff ? [{ id: 'financeiro', label: 'Financeiro', icon: DollarSign }] : []),
+    { id: 'mediums', label: canCadastros ? 'Médiuns' : 'Minha Ficha', icon: Users },
+    ...(canBebidas ? [{ id: 'bebidas', label: 'Bebidas (R$ 10)', icon: Wine }] : []),
+    ...(canCaixinha ? [{ id: 'financeiro', label: 'Financeiro', icon: DollarSign }] : []),
     { id: 'doacoes', label: 'Caixinha', icon: HeartHandshake },
     { id: 'curimba', label: 'Curimba', icon: Music },
     { id: 'biblioteca', label: 'Biblioteca', icon: BookOpen },
     { id: 'mensagens', label: 'Avisos', icon: Bell },
+    ...(isAdmin ? [{ id: 'configuracoes', label: 'Configurações', icon: Settings, badge: boletimPendenteMes }] : []),
   ];
 
   return (
     <div className="min-h-screen flex flex-col bg-stone-50">
-      {/* Toast flutuante */}
       {toast && (
         <div className="fixed bottom-5 right-5 z-50 bg-emerald-900 text-white px-4 py-3 rounded-xl shadow-xl flex items-center gap-2 text-sm font-medium">
           <CheckCircle2 className="w-4 h-4 text-amber-300" />
@@ -321,7 +496,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Cabeçalho */}
       <header className="bg-emerald-950 text-white sticky top-0 z-30 shadow-md">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -329,11 +503,11 @@ export default function App() {
               <Sparkles className="w-5 h-5 text-amber-300" />
             </div>
             <div>
-              <h1 className="font-bold text-lg leading-tight">Casa Bendizer</h1>
+              <h1 className="font-bold text-lg leading-tight">{configCasa.nome_casa || 'Casa Bendizer'}</h1>
               <p className="text-xs text-emerald-300">
                 Olá, {currentUserProfile?.nome} •{' '}
                 <span className="uppercase font-semibold text-amber-300">
-                  {role === 'admin' ? 'Admin Geral' : role === 'secretaria' ? 'Secretaria' : 'Médium'}
+                  {isAdmin ? 'Admin Geral' : isSecretaria ? 'Secretaria' : perms.length > 0 ? 'Médium / Equipe' : 'Médium'}
                 </span>
               </p>
             </div>
@@ -348,7 +522,6 @@ export default function App() {
           </button>
         </div>
 
-        {/* Navegação */}
         <nav className="bg-emerald-900/80 border-t border-emerald-800/80 overflow-x-auto">
           <div className="max-w-7xl mx-auto px-4 flex gap-1 py-1.5">
             {navItems.map(item => {
@@ -358,7 +531,7 @@ export default function App() {
                 <button
                   key={item.id}
                   onClick={() => setActiveTab(item.id)}
-                  className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                  className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition relative ${
                     active
                       ? 'bg-amber-400 text-emerald-950 shadow-sm'
                       : 'text-emerald-100 hover:bg-emerald-800/60'
@@ -366,6 +539,9 @@ export default function App() {
                 >
                   <Icon className="w-4 h-4" />
                   {item.label}
+                  {item.badge && (
+                    <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" title="Boletim mensal pendente" />
+                  )}
                 </button>
               );
             })}
@@ -373,7 +549,6 @@ export default function App() {
         </nav>
       </header>
 
-      {/* Conteúdo Principal */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-6">
         {activeTab === 'home' && (
           <HomeTab
@@ -381,9 +556,15 @@ export default function App() {
             setGiras={setGiras}
             mediums={mediums}
             bebidas={bebidas}
+            campanhas={campanhas}
             notificacoes={notificacoes}
-            currentUser={currentUserProfile}
-            isStaff={isStaff}
+            linksImportantes={linksImportantes}
+            setLinksImportantes={setLinksImportantes}
+            configCasa={configCasa}
+            isAdmin={isAdmin}
+            canCadastros={canCadastros}
+            canBebidas={canBebidas}
+            setActiveTab={setActiveTab}
             showToast={showToast}
           />
         )}
@@ -394,11 +575,13 @@ export default function App() {
             currentUser={currentUserProfile}
             setCurrentUser={setCurrentUserProfile}
             isAdmin={isAdmin}
-            isStaff={isStaff}
+            canCadastros={canCadastros}
+            linhasEntidade={linhasEntidade}
+            cargosLista={cargosLista}
             showToast={showToast}
           />
         )}
-        {activeTab === 'bebidas' && (
+        {activeTab === 'bebidas' && canBebidas && (
           <BebidasTab
             mediums={mediums}
             bebidas={bebidas}
@@ -406,15 +589,17 @@ export default function App() {
             financeiro={financeiro}
             setFinanceiro={setFinanceiro}
             currentUser={currentUserProfile}
-            isStaff={isStaff}
+            configCasa={configCasa}
             showToast={showToast}
           />
         )}
-        {activeTab === 'financeiro' && isStaff && (
+        {activeTab === 'financeiro' && canCaixinha && (
           <FinanceiroTab
+            mediums={mediums}
             financeiro={financeiro}
             setFinanceiro={setFinanceiro}
             currentUser={currentUserProfile}
+            configCasa={configCasa}
             showToast={showToast}
           />
         )}
@@ -425,7 +610,9 @@ export default function App() {
             financeiro={financeiro}
             setFinanceiro={setFinanceiro}
             currentUser={currentUserProfile}
-            isStaff={isStaff}
+            canCaixinha={canCaixinha}
+            categoriasCaixinha={categoriasCaixinha}
+            configCasa={configCasa}
             showToast={showToast}
           />
         )}
@@ -433,7 +620,9 @@ export default function App() {
           <CurimbaTab
             pontos={pontos}
             setPontos={setPontos}
-            isStaff={isStaff}
+            currentUser={currentUserProfile}
+            canCurimba={canCurimba}
+            linhasCurimba={linhasCurimba}
             showToast={showToast}
           />
         )}
@@ -442,8 +631,12 @@ export default function App() {
             livros={livros}
             setLivros={setLivros}
             mediums={mediums}
+            notificacoes={notificacoes}
+            setNotificacoes={setNotificacoes}
             currentUser={currentUserProfile}
-            isStaff={isStaff}
+            canBiblioteca={canBiblioteca}
+            categoriasBiblioteca={categoriasBiblioteca}
+            prazoDias={Number(configCasa.prazo_biblioteca_dias) || 20}
             showToast={showToast}
           />
         )}
@@ -453,9 +646,22 @@ export default function App() {
             setNotificacoes={setNotificacoes}
             mediums={mediums}
             bebidas={bebidas}
+            canCadastros={canCadastros}
+            canBebidas={canBebidas}
+            showToast={showToast}
+          />
+        )}
+        {activeTab === 'configuracoes' && isAdmin && (
+          <ConfiguracoesTab
+            configCasa={configCasa}
+            salvarConfigCasa={salvarConfigCasa}
+            mediums={mediums}
+            setMediums={setMediums}
             giras={giras}
+            listasCustom={listasCustom}
+            onAddLista={adicionarItemLista}
+            onRemoveLista={removerItemLista}
             currentUser={currentUserProfile}
-            isStaff={isStaff}
             showToast={showToast}
           />
         )}
@@ -464,9 +670,38 @@ export default function App() {
   );
 }
 
+/* ===================== COMPONENTE AUXILIAR: PIX DA CASA ===================== */
+function PixBanner({ configCasa, showToast }) {
+  if (!configCasa?.chave_pix) return null;
+  return (
+    <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <p className="text-xs font-bold text-amber-950">Chave PIX Oficial • {configCasa.nome_casa || 'Casa Bendizer'}</p>
+        <p className="text-xs text-amber-900 mt-0.5">
+          <strong>Chave:</strong> {configCasa.chave_pix}
+          {configCasa.favorecido_pix && <span> • <strong>Favorecido:</strong> {configCasa.favorecido_pix}</span>}
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={() => { navigator.clipboard.writeText(configCasa.chave_pix); showToast('Chave PIX copiada!'); }}
+        className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-emerald-950 font-bold rounded-xl text-xs flex items-center gap-1.5 transition"
+      >
+        <Copy className="w-3.5 h-3.5" /> Copiar Chave PIX
+      </button>
+    </div>
+  );
+}
+
 /* ===================== 1. ABA INÍCIO (HOME) ===================== */
-function HomeTab({ giras, setGiras, mediums, bebidas, notificacoes, currentUser, isStaff, showToast }) {
-  const [novaGira, setNovaGira] = useState({ titulo: '', data_gira: '', horario: '19:30', tipo: 'Gira de Atendimento' });
+function HomeTab({
+  giras, setGiras, mediums, bebidas, campanhas, notificacoes,
+  linksImportantes, setLinksImportantes, configCasa, isAdmin, canCadastros, canBebidas, setActiveTab, showToast
+}) {
+  const [novaGira, setNovaGira] = useState({
+    titulo: '', data_gira: '', horario: configCasa.horario_gira_padrao || '19:30', tipo: 'Gira de Atendimento'
+  });
+  const [novoLink, setNovoLink] = useState({ titulo: '', url: '', descricao: '' });
 
   const aniversariantes = mediums.filter(m => {
     if (!m.data_nascimento) return false;
@@ -474,8 +709,10 @@ function HomeTab({ giras, setGiras, mediums, bebidas, notificacoes, currentUser,
     return mes === MES_NUMERO;
   });
 
-  const minhaBebidaPaga = bebidas.some(b => b.medium_id === currentUser?.id && b.pago);
+  const mediumsAtivos = mediums.filter(m => (m.status_medium || 'Ativo') === 'Ativo');
   const totalBebidasPagas = bebidas.filter(b => b.pago).length;
+  const totalCaixinha = campanhas.reduce((acc, c) => acc + Number(c.arrecadado || 0), 0);
+  const boletimPendente = isAdmin && configCasa.ultimo_boletim_enviado !== MES_ATUAL;
 
   const adicionarGira = async (e) => {
     e.preventDefault();
@@ -483,7 +720,7 @@ function HomeTab({ giras, setGiras, mediums, bebidas, notificacoes, currentUser,
     const { data, error } = await supabase.from('calendario_giras').insert([novaGira]).select().single();
     if (!error && data) {
       setGiras([...giras, data].sort((a, b) => a.data_gira.localeCompare(b.data_gira)));
-      setNovaGira({ titulo: '', data_gira: '', horario: '19:30', tipo: 'Gira de Atendimento' });
+      setNovaGira({ titulo: '', data_gira: '', horario: configCasa.horario_gira_padrao || '19:30', tipo: 'Gira de Atendimento' });
       showToast('Gira adicionada ao calendário!');
     }
   };
@@ -494,42 +731,208 @@ function HomeTab({ giras, setGiras, mediums, bebidas, notificacoes, currentUser,
     showToast('Evento removido.');
   };
 
+  const adicionarLink = async (e) => {
+    e.preventDefault();
+    if (!novoLink.titulo || !novoLink.url) return;
+    const urlFormatada = novoLink.url.startsWith('http') ? novoLink.url : `https://${novoLink.url}`;
+    const { data, error } = await supabase
+      .from('links_importantes')
+      .insert([{ titulo: novoLink.titulo, url: urlFormatada, descricao: novoLink.descricao }])
+      .select()
+      .single();
+    if (!error && data) {
+      setLinksImportantes([...linksImportantes, data]);
+      setNovoLink({ titulo: '', url: '', descricao: '' });
+      showToast('Link importante adicionado!');
+    }
+  };
+
+  const removerLink = async (id) => {
+    await supabase.from('links_importantes').delete().eq('id', id);
+    setLinksImportantes(linksImportantes.filter(l => l.id !== id));
+    showToast('Link removido.');
+  };
+
   return (
     <div className="space-y-6">
-      {/* Cards de Resumo */}
+      {/* Lembrete automático para o Admin enviar o boletim mensal */}
+      {boletimPendente && (
+        <div className="bg-amber-50 border border-amber-300 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <Mail className="w-5 h-5 text-amber-700 shrink-0" />
+            <div>
+              <p className="text-xs font-bold text-amber-950">
+                {DIA_HOJE === 1 ? 'Hoje é dia 1º! ' : ''}Boletim Mensal de {NOME_MES_ATUAL} pronto para envio
+              </p>
+              <p className="text-xs text-amber-800">
+                Envie o e-mail com o calendário de giras e aniversariantes do mês para todos os médiuns e administração.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setActiveTab('configuracoes')}
+            className="px-4 py-2 bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-semibold rounded-xl"
+          >
+            Abrir e Enviar Boletim
+          </button>
+        </div>
+      )}
+
+      {/* Aviso / Boas-vindas configurado pelo Admin */}
+      {configCasa.aviso_boas_vindas && (
+        <div className="bg-emerald-900 text-white p-4 rounded-2xl shadow-sm flex items-start gap-3">
+          <Info className="w-5 h-5 text-amber-300 shrink-0 mt-0.5" />
+          <div className="text-xs leading-relaxed">
+            <p className="font-bold text-amber-300 uppercase tracking-wider mb-0.5">Orientações da Casa</p>
+            <p className="whitespace-pre-line">{configCasa.aviso_boas_vindas}</p>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
           <p className="text-xs font-semibold text-stone-500 uppercase">Corrente Ativa</p>
-          <p className="text-2xl font-bold text-emerald-900 mt-1">{mediums.length} Médiuns</p>
-          <p className="text-xs text-stone-500 mt-1">Cadastrados na Casa Bendizer</p>
+          <p className="text-2xl font-bold text-emerald-900 mt-1">{mediumsAtivos.length} Médiuns</p>
+          <p className="text-xs text-stone-500 mt-1">Total cadastrados: {mediums.length}</p>
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
-          <p className="text-xs font-semibold text-stone-500 uppercase">Caixinha Bebidas ({MES_ATUAL})</p>
-          {isStaff ? (
-            <>
-              <p className="text-2xl font-bold text-amber-700 mt-1">{totalBebidasPagas} / {mediums.length} Pagos</p>
-              <p className="text-xs text-stone-500 mt-1">Arrecadado: R$ {(totalBebidasPagas * 10).toFixed(2)}</p>
-            </>
-          ) : (
-            <>
-              <p className={`text-xl font-bold mt-1 ${minhaBebidaPaga ? 'text-emerald-700' : 'text-amber-600'}`}>
-                {minhaBebidaPaga ? 'Em dia (Pago)' : 'Pendente (R$ 10,00)'}
-              </p>
-              <p className="text-xs text-stone-500 mt-1">Contribuição mensal da corrente</p>
-            </>
-          )}
+          <p className="text-xs font-semibold text-stone-500 uppercase">Caixinha (Transparência)</p>
+          <p className="text-2xl font-bold text-amber-700 mt-1">R$ {totalCaixinha.toFixed(2)}</p>
+          <p className="text-xs text-stone-500 mt-1">{campanhas.length} caixinha(s) ativa(s)</p>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
-          <p className="text-xs font-semibold text-stone-500 uppercase">Próximos Trabalhos</p>
-          <p className="text-2xl font-bold text-stone-800 mt-1">{giras.length} Agendados</p>
-          <p className="text-xs text-stone-500 mt-1">Confira as datas abaixo</p>
+        {canBebidas ? (
+          <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
+            <p className="text-xs font-semibold text-stone-500 uppercase">Bebidas ({MES_ATUAL})</p>
+            <p className="text-2xl font-bold text-stone-800 mt-1">{totalBebidasPagas} / {mediumsAtivos.length} Pagos</p>
+            <p className="text-xs text-stone-500 mt-1">Arrecadado: R$ {(totalBebidasPagas * 10).toFixed(2)}</p>
+          </div>
+        ) : (
+          <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
+            <p className="text-xs font-semibold text-stone-500 uppercase">Próximos Trabalhos</p>
+            <p className="text-2xl font-bold text-stone-800 mt-1">{giras.length} Agendados</p>
+            <p className="text-xs text-stone-500 mt-1">Confira as datas abaixo</p>
+          </div>
+        )}
+      </div>
+
+      {/* Transparência da Caixinha na Página Inicial */}
+      <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-6">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <div>
+            <h2 className="font-bold text-base text-stone-800 flex items-center gap-2">
+              <HeartHandshake className="w-5 h-5 text-amber-600" />
+              Transparência • Caixinha da {configCasa.nome_casa || 'Casa Bendizer'}
+            </h2>
+            <p className="text-xs text-stone-500">Acompanhe o saldo e o andamento das arrecadações da nossa casa</p>
+          </div>
+          <button
+            onClick={() => setActiveTab('doacoes')}
+            className="px-3.5 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-950 font-semibold rounded-xl text-xs transition"
+          >
+            Ver Caixinhas / Contribuir
+          </button>
         </div>
+
+        {campanhas.length === 0 ? (
+          <p className="text-xs text-stone-500">Nenhuma caixinha ativa cadastrada no momento.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {campanhas.map(c => {
+              const pct = Math.min(100, Math.round((Number(c.arrecadado) / Math.max(1, Number(c.meta))) * 100));
+              return (
+                <div key={c.id} className="p-4 rounded-xl bg-stone-50 border border-stone-200 space-y-2">
+                  <div className="flex justify-between items-start gap-2">
+                    <h3 className="font-bold text-sm text-stone-800">{c.titulo}</h3>
+                    <span className="text-[11px] font-bold bg-amber-100 text-amber-900 px-2 py-0.5 rounded">
+                      {pct}%
+                    </span>
+                  </div>
+                  <div className="w-full bg-stone-200 h-2 rounded-full overflow-hidden">
+                    <div className="bg-emerald-700 h-full" style={{ width: `${pct}%` }} />
+                  </div>
+                  <div className="flex justify-between text-[11px] font-semibold text-stone-600">
+                    <span>Atual: R$ {Number(c.arrecadado).toFixed(2)}</span>
+                    <span>Meta: R$ {Number(c.meta).toFixed(2)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Links Importantes na Página Inicial */}
+      <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-6">
+        <h2 className="font-bold text-base text-stone-800 flex items-center gap-2 mb-3">
+          <Link2 className="w-5 h-5 text-emerald-700" />
+          Links Importantes
+        </h2>
+
+        {canCadastros && (
+          <form onSubmit={adicionarLink} className="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-4 bg-stone-50 p-3 rounded-xl border border-stone-200">
+            <input
+              type="text"
+              required
+              placeholder="Título (Ex: Grupo WhatsApp, Drive)"
+              value={novoLink.titulo}
+              onChange={e => setNovoLink({ ...novoLink, titulo: e.target.value })}
+              className="px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white"
+            />
+            <input
+              type="text"
+              required
+              placeholder="Link / URL (https://...)"
+              value={novoLink.url}
+              onChange={e => setNovoLink({ ...novoLink, url: e.target.value })}
+              className="px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white"
+            />
+            <input
+              type="text"
+              placeholder="Descrição curta (opcional)"
+              value={novoLink.descricao}
+              onChange={e => setNovoLink({ ...novoLink, descricao: e.target.value })}
+              className="px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white"
+            />
+            <button type="submit" className="bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-semibold rounded-lg px-3 py-2">
+              + Adicionar Link
+            </button>
+          </form>
+        )}
+
+        {linksImportantes.length === 0 ? (
+          <p className="text-xs text-stone-500">Nenhum link importante cadastrado ainda.</p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {linksImportantes.map(link => (
+              <div key={link.id} className="flex items-center justify-between p-3.5 rounded-xl bg-emerald-50/60 border border-emerald-200/80">
+                <a
+                  href={link.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex-1 min-w-0 pr-2 group"
+                >
+                  <p className="font-bold text-sm text-emerald-950 group-hover:underline flex items-center gap-1.5 truncate">
+                    <ExternalLink className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                    {link.titulo}
+                  </p>
+                  {link.descricao && (
+                    <p className="text-xs text-stone-600 mt-0.5 truncate">{link.descricao}</p>
+                  )}
+                </a>
+                {canCadastros && (
+                  <button onClick={() => removerLink(link.id)} className="text-stone-400 hover:text-rose-600 p-1" title="Remover link">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Calendário de Giras */}
         <div className="lg:col-span-2 bg-white rounded-2xl border border-stone-200 shadow-sm p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-bold text-lg text-stone-800 flex items-center gap-2">
@@ -538,7 +941,7 @@ function HomeTab({ giras, setGiras, mediums, bebidas, notificacoes, currentUser,
             </h2>
           </div>
 
-          {isStaff && (
+          {canCadastros && (
             <form onSubmit={adicionarGira} className="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-5 bg-stone-50 p-3 rounded-xl border border-stone-200">
               <input
                 type="text"
@@ -581,7 +984,7 @@ function HomeTab({ giras, setGiras, mediums, bebidas, notificacoes, currentUser,
                       <p className="text-xs text-stone-500">Horário: {g.horario} • {g.tipo}</p>
                     </div>
                   </div>
-                  {isStaff && (
+                  {canCadastros && (
                     <button onClick={() => removerGira(g.id)} className="text-stone-400 hover:text-red-600 p-1">
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -592,7 +995,6 @@ function HomeTab({ giras, setGiras, mediums, bebidas, notificacoes, currentUser,
           )}
         </div>
 
-        {/* Coluna Direita: Aniversariantes & Mural */}
         <div className="space-y-6">
           <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-6">
             <h2 className="font-bold text-base text-stone-800 flex items-center gap-2 mb-4">
@@ -640,14 +1042,17 @@ function HomeTab({ giras, setGiras, mediums, bebidas, notificacoes, currentUser,
   );
 }
 
-/* ===================== 2. ABA MÉDIUNS (PESSOAL, SAÚDE & ESPIRITUAL) ===================== */
-function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin, isStaff, showToast }) {
+/* ===================== 2. ABA MÉDIUNS ===================== */
+function MediumsTab({
+  mediums, setMediums, currentUser, setCurrentUser, isAdmin, canCadastros,
+  linhasEntidade, cargosLista, showToast
+}) {
   const [selectedId, setSelectedId] = useState(currentUser?.id);
-  const [subTab, setSubTab] = useState('pessoal'); // 'pessoal' | 'espiritual'
+  const [subTab, setSubTab] = useState('pessoal');
   const [novoRito, setNovoRito] = useState('');
   const [novaEntidade, setNovaEntidade] = useState({ linha: 'Caboclo(a)', nome: '' });
 
-  const activeMedium = isStaff
+  const activeMedium = canCadastros
     ? (mediums.find(m => m.id === selectedId) || currentUser)
     : currentUser;
 
@@ -656,6 +1061,17 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
   useEffect(() => {
     if (activeMedium) setForm(activeMedium);
   }, [activeMedium?.id, mediums]);
+
+  const isOwnProfile = form.id === currentUser?.id;
+  const canEditEntidades = canCadastros || isOwnProfile;
+
+  const togglePermissao = (modId) => {
+    const atuais = form.permissoes || [];
+    const atualizadas = atuais.includes(modId)
+      ? atuais.filter(p => p !== modId)
+      : [...atuais, modId];
+    setForm({ ...form, permissoes: atualizadas });
+  };
 
   const salvarFicha = async (e) => {
     e.preventDefault();
@@ -668,11 +1084,20 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
       alergias: form.alergias,
       condicoes_medicas: form.condicoes_medicas,
       contato_emergencia: form.contato_emergencia,
-      ...(isStaff ? {
+      bebe: form.bebe || 'Não',
+      fuma: form.fuma || 'Não',
+      remedio_controlado: form.remedio_controlado || '',
+      dispositivo_medico: form.dispositivo_medico || '',
+      restricoes_fisicas: form.restricoes_fisicas || '',
+      ...(canEditEntidades ? { entidades: form.entidades || [] } : {}),
+      ...(canCadastros ? {
         cargo: form.cargo,
-        nivel_acesso: form.nivel_acesso,
+        status_medium: form.status_medium || 'Ativo',
         ritos: form.ritos || [],
-        entidades: form.entidades || []
+      } : {}),
+      ...(isAdmin ? {
+        nivel_acesso: form.nivel_acesso,
+        permissoes: form.permissoes || []
       } : {})
     };
 
@@ -687,6 +1112,24 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
       setMediums(mediums.map(m => m.id === data.id ? data : m));
       if (data.id === currentUser?.id) setCurrentUser(data);
       showToast('Cadastro atualizado com sucesso!');
+    } else if (error) {
+      showToast('Erro ao salvar: ' + error.message);
+    }
+  };
+
+  const excluirMedium = async (mediumToDelete) => {
+    if (mediumToDelete.id === currentUser?.id) {
+      showToast('Você não pode excluir o seu próprio cadastro logado.');
+      return;
+    }
+    if (!window.confirm(`Tem certeza que deseja excluir o cadastro de "${mediumToDelete.nome}"?`)) return;
+
+    const { error } = await supabase.from('mediums').delete().eq('id', mediumToDelete.id);
+    if (!error) {
+      const restantes = mediums.filter(m => m.id !== mediumToDelete.id);
+      setMediums(restantes);
+      setSelectedId(currentUser?.id);
+      showToast('Cadastro excluído com sucesso.');
     }
   };
 
@@ -701,47 +1144,65 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
     if (!novaEntidade.nome.trim()) return;
     const updated = [...(form.entidades || []), novaEntidade];
     setForm({ ...form, entidades: updated });
-    setNovaEntidade({ linha: 'Caboclo(a)', nome: '' });
+    setNovaEntidade({ linha: linhasEntidade[0] || 'Caboclo(a)', nome: '' });
+  };
+
+  const badgeStatus = (st) => {
+    const status = st || 'Ativo';
+    if (status === 'Ativo') return 'bg-emerald-100 text-emerald-800';
+    if (status === 'Afastado') return 'bg-amber-100 text-amber-800';
+    return 'bg-rose-100 text-rose-800';
   };
 
   if (!form?.id) return null;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-      {/* Lista lateral (somente Admin e Secretaria veem todos os médiuns) */}
-      {isStaff && (
+      {canCadastros && (
         <div className="bg-white rounded-2xl border border-stone-200 p-4 shadow-sm h-fit">
           <h3 className="font-bold text-sm text-stone-800 mb-3 flex items-center gap-2">
             <Users className="w-4 h-4 text-emerald-700" />
             Corrente ({mediums.length})
           </h3>
-          <div className="space-y-1.5 max-h-[500px] overflow-y-auto">
-            {mediums.map(m => (
-              <button
-                key={m.id}
-                onClick={() => setSelectedId(m.id)}
-                className={`w-full text-left px-3 py-2.5 rounded-xl text-xs transition ${
-                  form.id === m.id
-                    ? 'bg-emerald-900 text-white font-semibold'
-                    : 'hover:bg-stone-100 text-stone-700'
-                }`}
-              >
-                <p className="truncate">{m.nome}</p>
-                <p className={`text-[11px] ${form.id === m.id ? 'text-amber-300' : 'text-stone-400'}`}>
-                  {m.cargo}
-                </p>
-              </button>
-            ))}
+          <div className="space-y-1.5 max-h-[540px] overflow-y-auto">
+            {mediums.map(m => {
+              const st = m.status_medium || 'Ativo';
+              return (
+                <button
+                  key={m.id}
+                  onClick={() => setSelectedId(m.id)}
+                  className={`w-full text-left px-3 py-2.5 rounded-xl text-xs transition ${
+                    form.id === m.id
+                      ? 'bg-emerald-900 text-white font-semibold'
+                      : 'hover:bg-stone-100 text-stone-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-1">
+                    <p className="truncate">{m.nome}</p>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${form.id === m.id ? 'bg-white/20 text-amber-200' : badgeStatus(st)}`}>
+                      {st}
+                    </span>
+                  </div>
+                  <p className={`text-[11px] mt-0.5 ${form.id === m.id ? 'text-amber-300' : 'text-stone-400'}`}>
+                    {m.cargo}
+                  </p>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* Ficha Detalhada */}
-      <div className={`${isStaff ? 'lg:col-span-3' : 'lg:col-span-4'} bg-white rounded-2xl border border-stone-200 p-6 shadow-sm`}>
+      <div className={`${canCadastros ? 'lg:col-span-3' : 'lg:col-span-4'} bg-white rounded-2xl border border-stone-200 p-6 shadow-sm`}>
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-stone-200 pb-4 mb-5">
           <div>
-            <h2 className="text-xl font-bold text-stone-800">{form.nome}</h2>
-            <p className="text-xs text-stone-500">{form.email} • {form.cargo}</p>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-bold text-stone-800">{form.nome}</h2>
+              <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${badgeStatus(form.status_medium)}`}>
+                {form.status_medium || 'Ativo'}
+              </span>
+            </div>
+            <p className="text-xs text-stone-500 mt-0.5">{form.email} • {form.cargo}</p>
           </div>
 
           <div className="flex bg-stone-100 p-1 rounded-xl">
@@ -761,7 +1222,7 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
                 subTab === 'espiritual' ? 'bg-white text-emerald-900 shadow-sm' : 'text-stone-600'
               }`}
             >
-              <Sparkles className="w-3.5 h-3.5" /> Dados Espirituais & Guias
+              <Sparkles className="w-3.5 h-3.5" /> Espiritual & Acessos
             </button>
           </div>
         </div>
@@ -807,51 +1268,130 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
                     className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm"
                   />
                 </div>
+
+                {canCadastros && (
+                  <div>
+                    <label className="block text-xs font-semibold text-stone-600 mb-1">Situação na Corrente</label>
+                    <select
+                      value={form.status_medium || 'Ativo'}
+                      onChange={e => setForm({ ...form, status_medium: e.target.value })}
+                      className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
+                    >
+                      <option value="Ativo">Ativo</option>
+                      <option value="Afastado">Afastado</option>
+                      <option value="Suspenso">Suspenso</option>
+                    </select>
+                  </div>
+                )}
               </div>
 
-              <div className="bg-rose-50/60 border border-rose-200/80 rounded-2xl p-4 space-y-4">
-                <h3 className="font-bold text-sm text-rose-900 flex items-center gap-2">
-                  <HeartPulse className="w-4 h-4 text-rose-600" />
-                  Ficha de Saúde & Emergência
-                </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="bg-rose-50/60 border border-rose-200/80 rounded-2xl p-5 space-y-4">
+                <div>
+                  <h3 className="font-bold text-sm text-rose-900 flex items-center gap-2">
+                    <HeartPulse className="w-4 h-4 text-rose-600" />
+                    Ficha de Saúde, Hábitos & Segurança na Gira
+                  </h3>
+                  <p className="text-[11px] text-rose-800/80 mt-0.5">
+                    Informações essenciais para cuidado com elementos (bebidas, fumo, ervas) e pronto atendimento durante os trabalhos.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-xs font-semibold text-stone-700 mb-1">Tipo Sanguíneo</label>
                     <input
                       type="text"
                       value={form.tipo_sanguineo || ''}
                       onChange={e => setForm({ ...form, tipo_sanguineo: e.target.value })}
-                      placeholder="Ex: O+, A-, etc."
+                      placeholder="Ex: O+, A-, AB+"
                       className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-stone-700 mb-1">Contato de Emergência</label>
+                    <label className="block text-xs font-semibold text-stone-700 mb-1">Consome bebida alcoólica?</label>
+                    <select
+                      value={form.bebe || 'Não'}
+                      onChange={e => setForm({ ...form, bebe: e.target.value })}
+                      className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
+                    >
+                      <option value="Não">Não consome (Restrição total)</option>
+                      <option value="Socialmente">Sim, socialmente / em trabalho</option>
+                      <option value="Restrição médica">Não pode por motivo médico / remédio</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-stone-700 mb-1">Fumante?</label>
+                    <select
+                      value={form.fuma || 'Não'}
+                      onChange={e => setForm({ ...form, fuma: e.target.value })}
+                      className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
+                    >
+                      <option value="Não">Não fuma</option>
+                      <option value="Apenas em trabalho">Apenas em trabalho espiritual</option>
+                      <option value="Sim">Sim, fumante</option>
+                      <option value="Alergia a fumaça">Sensibilidade / Alergia respiratória</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-stone-700 mb-1">Toma remédio controlado ou uso contínuo?</label>
                     <input
                       type="text"
-                      value={form.contato_emergencia || ''}
-                      onChange={e => setForm({ ...form, contato_emergencia: e.target.value })}
-                      placeholder="Nome e telefone de familiar"
+                      value={form.remedio_controlado || ''}
+                      onChange={e => setForm({ ...form, remedio_controlado: e.target.value })}
+                      placeholder="Ex: Não / Sim (nome do medicamento e horário)"
                       className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-stone-700 mb-1">Alergias (Ervas, Alimentos, Remédios)</label>
+                    <label className="block text-xs font-semibold text-stone-700 mb-1">Usa algum dispositivo médico?</label>
+                    <input
+                      type="text"
+                      value={form.dispositivo_medico || ''}
+                      onChange={e => setForm({ ...form, dispositivo_medico: e.target.value })}
+                      placeholder="Ex: Não / Marca-passo, bomba de insulina, aparelho auditivo..."
+                      className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-stone-700 mb-1">Alergias (Ervas, Alimentos, Medicamentos)</label>
                     <input
                       type="text"
                       value={form.alergias || ''}
                       onChange={e => setForm({ ...form, alergias: e.target.value })}
-                      placeholder="Ex: Alergia a arruda, dipirona..."
+                      placeholder="Ex: Arruda, dendê, dipirona, picada de inseto..."
                       className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-stone-700 mb-1">Condições Médicas / Uso de Remédios</label>
+                    <label className="block text-xs font-semibold text-stone-700 mb-1">Condições Médicas / Crônicas</label>
                     <input
                       type="text"
                       value={form.condicoes_medicas || ''}
                       onChange={e => setForm({ ...form, condicoes_medicas: e.target.value })}
-                      placeholder="Ex: Hipertensão, asma..."
+                      placeholder="Ex: Hipertensão, diabetes, asma, epilepsia..."
+                      className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-stone-700 mb-1">Restrições Físicas / Mobilidade / Gestação</label>
+                    <input
+                      type="text"
+                      value={form.restricoes_fisicas || ''}
+                      onChange={e => setForm({ ...form, restricoes_fisicas: e.target.value })}
+                      placeholder="Ex: Problema no joelho/coluna, gestante, labirintite..."
+                      className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-stone-700 mb-1">Contato de Emergência (Nome e Telefone)</label>
+                    <input
+                      type="text"
+                      value={form.contato_emergencia || ''}
+                      onChange={e => setForm({ ...form, contato_emergencia: e.target.value })}
+                      placeholder="Ex: Maria (Mãe) - (11) 98888-7777"
                       className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
                     />
                   </div>
@@ -860,39 +1400,88 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
             </>
           ) : (
             <div className="space-y-5">
-              {/* Cargo e Nível de Acesso */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-stone-50 p-4 rounded-xl border border-stone-200">
-                <div>
-                  <label className="block text-xs font-semibold text-stone-600 mb-1">Cargo na Casa Bendizer</label>
-                  <input
-                    type="text"
-                    disabled={!isStaff}
-                    value={form.cargo || ''}
-                    onChange={e => setForm({ ...form, cargo: e.target.value })}
-                    placeholder="Ex: Médium de Corrente, Cambono, Ogã, Mãe Pequena"
-                    className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white disabled:bg-stone-100"
-                  />
-                </div>
-                {isAdmin && (
+              <div className="bg-stone-50 p-4 rounded-xl border border-stone-200 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold text-stone-600 mb-1">Permissão de Acesso no Sistema</label>
-                    <select
-                      value={form.nivel_acesso || 'medium'}
-                      onChange={e => setForm({ ...form, nivel_acesso: e.target.value })}
-                      className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
-                    >
-                      <option value="medium">Médium (Acesso Restrito)</option>
-                      <option value="secretaria">Secretaria / Liderança</option>
-                      <option value="admin">Administrador Geral</option>
-                    </select>
+                    <label className="block text-xs font-semibold text-stone-600 mb-1">Cargo na Casa</label>
+                    <input
+                      list="lista-cargos"
+                      disabled={!canCadastros}
+                      value={form.cargo || ''}
+                      onChange={e => setForm({ ...form, cargo: e.target.value })}
+                      placeholder="Escolha ou digite o cargo"
+                      className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white disabled:bg-stone-100"
+                    />
+                    <datalist id="lista-cargos">
+                      {cargosLista.map(c => <option key={c} value={c} />)}
+                    </datalist>
+                  </div>
+                  {canCadastros && (
+                    <div>
+                      <label className="block text-xs font-semibold text-stone-600 mb-1">Situação na Corrente</label>
+                      <select
+                        value={form.status_medium || 'Ativo'}
+                        onChange={e => setForm({ ...form, status_medium: e.target.value })}
+                        className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
+                      >
+                        <option value="Ativo">Ativo</option>
+                        <option value="Afastado">Afastado</option>
+                        <option value="Suspenso">Suspenso</option>
+                      </select>
+                    </div>
+                  )}
+                  {isAdmin && (
+                    <div>
+                      <label className="block text-xs font-semibold text-stone-600 mb-1">Perfil Principal no Sistema</label>
+                      <select
+                        value={form.nivel_acesso || 'medium'}
+                        onChange={e => setForm({ ...form, nivel_acesso: e.target.value })}
+                        className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
+                      >
+                        <option value="medium">Médium (Com permissões abaixo)</option>
+                        <option value="secretaria">Secretaria (Acesso completo)</option>
+                        <option value="admin">Administrador Geral (Total)</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                {isAdmin && form.nivel_acesso === 'medium' && (
+                  <div className="pt-3 border-t border-stone-200">
+                    <p className="text-xs font-bold text-emerald-950 mb-2 flex items-center gap-1.5">
+                      <Shield className="w-4 h-4 text-emerald-700" />
+                      Permissões Individuais por Setor:
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {MODULOS_PERMISSAO.map(mod => {
+                        const checked = (form.permissoes || []).includes(mod.id);
+                        return (
+                          <label
+                            key={mod.id}
+                            className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-medium cursor-pointer transition ${
+                              checked
+                                ? 'bg-emerald-50 border-emerald-400 text-emerald-950'
+                                : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-100'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => togglePermissao(mod.id)}
+                              className="rounded text-emerald-700 focus:ring-emerald-600"
+                            />
+                            {mod.label}
+                          </label>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </div>
 
-              {/* Ritos e Obrigações */}
               <div className="border border-stone-200 rounded-xl p-4">
                 <h4 className="font-bold text-sm text-stone-800 mb-3">Ritos e Obrigações Realizadas</h4>
-                {isStaff && (
+                {canCadastros && (
                   <div className="flex gap-2 mb-3">
                     <input
                       type="text"
@@ -911,7 +1500,7 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
                   {(form.ritos || []).map((r, i) => (
                     <span key={i} className="inline-flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-900 px-3 py-1.5 rounded-lg text-xs font-medium">
                       {r.nome} ({r.data})
-                      {isStaff && (
+                      {canCadastros && (
                         <button type="button" onClick={() => setForm({ ...form, ritos: form.ritos.filter((_, idx) => idx !== i) })} className="text-red-500 font-bold">×</button>
                       )}
                     </span>
@@ -919,24 +1508,18 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
                 </div>
               </div>
 
-              {/* Entidades de Trabalho */}
-              <div className="border border-stone-200 rounded-xl p-4">
-                <h4 className="font-bold text-sm text-stone-800 mb-3">Entidades de Trabalho</h4>
-                {isStaff && (
-                  <div className="flex flex-wrap gap-2 mb-3">
+              <div className="border border-stone-200 rounded-xl p-4 space-y-3">
+                <h4 className="font-bold text-sm text-stone-800">Entidades de Trabalho</h4>
+                {canEditEntidades && (
+                  <div className="flex flex-wrap gap-2">
                     <select
                       value={novaEntidade.linha}
                       onChange={e => setNovaEntidade({ ...novaEntidade, linha: e.target.value })}
                       className="px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
                     >
-                      <option>Caboclo(a)</option>
-                      <option>Preto(a)-Velho(a)</option>
-                      <option>Erê / Criança</option>
-                      <option>Exu</option>
-                      <option>Pombagira</option>
-                      <option>Boiadeiro</option>
-                      <option>Marinheiro</option>
-                      <option>Baiano(a)</option>
+                      {linhasEntidade.map(l => (
+                        <option key={l} value={l}>{l}</option>
+                      ))}
                     </select>
                     <input
                       type="text"
@@ -958,7 +1541,7 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
                         <span className="font-bold text-amber-900">{ent.linha}: </span>
                         <span className="text-stone-800">{ent.nome}</span>
                       </div>
-                      {isStaff && (
+                      {canEditEntidades && (
                         <button type="button" onClick={() => setForm({ ...form, entidades: form.entidades.filter((_, idx) => idx !== i) })} className="text-red-500 font-bold">×</button>
                       )}
                     </div>
@@ -968,7 +1551,17 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
             </div>
           )}
 
-          <div className="flex justify-end">
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+            {canCadastros && !isOwnProfile ? (
+              <button
+                type="button"
+                onClick={() => excluirMedium(form)}
+                className="px-4 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold rounded-xl text-xs flex items-center gap-1.5 transition"
+              >
+                <Trash2 className="w-4 h-4" /> Excluir Cadastro do Médium
+              </button>
+            ) : <div />}
+
             <button type="submit" className="px-6 py-2.5 bg-emerald-800 hover:bg-emerald-900 text-white font-semibold rounded-xl text-sm transition">
               Salvar Alterações
             </button>
@@ -979,8 +1572,8 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
   );
 }
 
-/* ===================== 3. ABA BEBIDAS (R$ 10/MÊS) ===================== */
-function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, currentUser, isStaff, showToast }) {
+/* ===================== 3. ABA BEBIDAS ===================== */
+function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, currentUser, configCasa, showToast }) {
   const [compraDesc, setCompraDesc] = useState('');
   const [compraValor, setCompraValor] = useState('');
 
@@ -989,7 +1582,6 @@ function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, c
   const totalGasto = comprasBebidas.reduce((acc, item) => acc + Number(item.valor), 0);
 
   const togglePagamento = async (mediumId) => {
-    if (!isStaff) return;
     const existente = bebidas.find(b => b.medium_id === mediumId);
     if (existente) {
       const novoStatus = !existente.pago;
@@ -1034,12 +1626,14 @@ function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, c
       setFinanceiro([data, ...financeiro]);
       setCompraDesc('');
       setCompraValor('');
-      showToast('Compra de bebidas registrada na prestação de contas!');
+      showToast('Compra de bebidas registrada!');
     }
   };
 
   return (
     <div className="space-y-6">
+      <PixBanner configCasa={configCasa} showToast={showToast} />
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
           <p className="text-xs font-semibold text-stone-500 uppercase">Arrecadado ({MES_ATUAL})</p>
@@ -1050,19 +1644,18 @@ function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, c
           <p className="text-2xl font-bold text-rose-700 mt-1">R$ {totalGasto.toFixed(2)}</p>
         </div>
         <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
-          <p className="text-xs font-semibold text-stone-500 uppercase">Saldo da Caixinha</p>
+          <p className="text-xs font-semibold text-stone-500 uppercase">Saldo das Bebidas</p>
           <p className="text-2xl font-bold text-amber-700 mt-1">R$ {(totalArrecadado - totalGasto).toFixed(2)}</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Lista de Contribuição Mensal */}
         <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm">
           <h2 className="font-bold text-base text-stone-800 mb-1 flex items-center gap-2">
             <Wine className="w-5 h-5 text-amber-600" />
             Contribuição Mensal (R$ 10,00 / Médium)
           </h2>
-          <p className="text-xs text-stone-500 mb-4">Referência: {MES_ATUAL}</p>
+          <p className="text-xs text-stone-500 mb-4">Vencimento dia {configCasa.dia_vencimento || 10} • {MES_ATUAL}</p>
 
           <div className="space-y-2">
             {mediums.map(m => {
@@ -1075,13 +1668,12 @@ function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, c
                     <p className="text-[11px] text-stone-500">{m.cargo}</p>
                   </div>
                   <button
-                    disabled={!isStaff}
                     onClick={() => togglePagamento(m.id)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer hover:opacity-80 ${
                       pago
                         ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                         : 'bg-amber-100 text-amber-800 border border-amber-300'
-                    } ${isStaff ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}
+                    }`}
                   >
                     {pago ? '✓ Pago (R$ 10)' : 'Pendente'}
                   </button>
@@ -1091,34 +1683,31 @@ function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, c
           </div>
         </div>
 
-        {/* Prestação de Contas das Compras */}
         <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm">
           <h2 className="font-bold text-base text-stone-800 mb-4">Prestação de Contas (Compras)</h2>
 
-          {isStaff && (
-            <form onSubmit={registrarCompra} className="flex flex-wrap gap-2 mb-4 bg-stone-50 p-3 rounded-xl border border-stone-200">
-              <input
-                type="text"
-                placeholder="Ex: Marafo, vinho tinto, guaraná..."
-                value={compraDesc}
-                onChange={e => setCompraDesc(e.target.value)}
-                className="flex-1 px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white"
-                required
-              />
-              <input
-                type="number"
-                step="0.01"
-                placeholder="Valor R$"
-                value={compraValor}
-                onChange={e => setCompraValor(e.target.value)}
-                className="w-24 px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white"
-                required
-              />
-              <button type="submit" className="bg-emerald-800 text-white text-xs font-semibold px-3 py-2 rounded-lg">
-                Lançar
-              </button>
-            </form>
-          )}
+          <form onSubmit={registrarCompra} className="flex flex-wrap gap-2 mb-4 bg-stone-50 p-3 rounded-xl border border-stone-200">
+            <input
+              type="text"
+              placeholder="Ex: Marafo, vinho tinto, guaraná..."
+              value={compraDesc}
+              onChange={e => setCompraDesc(e.target.value)}
+              className="flex-1 px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white"
+              required
+            />
+            <input
+              type="number"
+              step="0.01"
+              placeholder="Valor R$"
+              value={compraValor}
+              onChange={e => setCompraValor(e.target.value)}
+              className="w-24 px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white"
+              required
+            />
+            <button type="submit" className="bg-emerald-800 text-white text-xs font-semibold px-3 py-2 rounded-lg">
+              Lançar
+            </button>
+          </form>
 
           <div className="space-y-2">
             {comprasBebidas.length === 0 ? (
@@ -1142,11 +1731,49 @@ function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, c
 }
 
 /* ===================== 4. ABA FINANCEIRO ===================== */
-function FinanceiroTab({ financeiro, setFinanceiro, currentUser, showToast }) {
+function FinanceiroTab({ mediums, financeiro, setFinanceiro, currentUser, configCasa, showToast }) {
   const [form, setForm] = useState({ tipo: 'entrada', categoria: 'Mensalidade', descricao: '', valor: '' });
+  const [valorMensalidadePadrao, setValorMensalidadePadrao] = useState(
+    String(Number(configCasa.valor_mensalidade_padrao || 50).toFixed(2))
+  );
 
-  const entradas = financeiro.filter(f => f.tipo === 'entrada').reduce((a, b) => a + Number(b.valor), 0);
-  const saidas = financeiro.filter(f => f.tipo === 'saida').reduce((a, b) => a + Number(b.valor), 0);
+  useEffect(() => {
+    setValorMensalidadePadrao(String(Number(configCasa.valor_mensalidade_padrao || 50).toFixed(2)));
+  }, [configCasa.valor_mensalidade_padrao]);
+
+  const movsGerais = financeiro.filter(f => f.categoria !== 'Compra Bebidas');
+  const entradas = movsGerais.filter(f => f.tipo === 'entrada').reduce((a, b) => a + Number(b.valor), 0);
+  const saidas = movsGerais.filter(f => f.tipo === 'saida').reduce((a, b) => a + Number(b.valor), 0);
+
+  const mensalidadesMes = movsGerais.filter(
+    f => f.categoria === 'Mensalidade' && (f.data_movimento || '').startsWith(MES_ATUAL)
+  );
+
+  const toggleMensalidadeMedium = async (m) => {
+    const registroExistente = mensalidadesMes.find(item => item.descricao === `Mensalidade (${MES_ATUAL}) - ${m.nome}`);
+    if (registroExistente) {
+      await supabase.from('financeiro').delete().eq('id', registroExistente.id);
+      setFinanceiro(financeiro.filter(f => f.id !== registroExistente.id));
+      showToast(`Mensalidade de ${m.nome} marcada como pendente.`);
+    } else {
+      const val = parseFloat(valorMensalidadePadrao) || 50;
+      const { data } = await supabase
+        .from('financeiro')
+        .insert([{
+          tipo: 'entrada',
+          categoria: 'Mensalidade',
+          descricao: `Mensalidade (${MES_ATUAL}) - ${m.nome}`,
+          valor: val,
+          registrado_por: currentUser?.nome
+        }])
+        .select()
+        .single();
+      if (data) {
+        setFinanceiro([data, ...financeiro]);
+        showToast(`Mensalidade de ${m.nome} (R$ ${val.toFixed(2)}) registrada!`);
+      }
+    }
+  };
 
   const adicionarMovimento = async (e) => {
     e.preventDefault();
@@ -1163,8 +1790,16 @@ function FinanceiroTab({ financeiro, setFinanceiro, currentUser, showToast }) {
     }
   };
 
+  const excluirMovimento = async (id) => {
+    await supabase.from('financeiro').delete().eq('id', id);
+    setFinanceiro(financeiro.filter(f => f.id !== id));
+    showToast('Lançamento excluído.');
+  };
+
   return (
     <div className="space-y-6">
+      <PixBanner configCasa={configCasa} showToast={showToast} />
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
           <p className="text-xs font-semibold text-stone-500 uppercase">Total Entradas</p>
@@ -1175,13 +1810,57 @@ function FinanceiroTab({ financeiro, setFinanceiro, currentUser, showToast }) {
           <p className="text-2xl font-bold text-rose-700 mt-1">R$ {saidas.toFixed(2)}</p>
         </div>
         <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
-          <p className="text-xs font-semibold text-stone-500 uppercase">Saldo em Caixa</p>
+          <p className="text-xs font-semibold text-stone-500 uppercase">Saldo Financeiro</p>
           <p className="text-2xl font-bold text-stone-800 mt-1">R$ {(entradas - saidas).toFixed(2)}</p>
         </div>
       </div>
 
       <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm">
-        <h2 className="font-bold text-base text-stone-800 mb-4">Livro Caixa da Casa Bendizer</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <h2 className="font-bold text-base text-stone-800">Controle de Mensalidades ({MES_ATUAL})</h2>
+            <p className="text-xs text-stone-500">Vencimento dia {configCasa.dia_vencimento || 10} • Clique para confirmar o pagamento</p>
+          </div>
+          <div className="flex items-center gap-2 bg-stone-50 px-3 py-1.5 rounded-xl border border-stone-200">
+            <span className="text-xs font-semibold text-stone-600">Valor padrão (R$):</span>
+            <input
+              type="number"
+              step="0.01"
+              value={valorMensalidadePadrao}
+              onChange={e => setValorMensalidadePadrao(e.target.value)}
+              className="w-20 px-2 py-1 text-xs border border-stone-200 rounded-lg bg-white font-bold"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+          {mediums.map(m => {
+            const pagoReg = mensalidadesMes.find(item => item.descricao === `Mensalidade (${MES_ATUAL}) - ${m.nome}`);
+            const pago = Boolean(pagoReg);
+            return (
+              <div key={m.id} className="flex items-center justify-between p-3 rounded-xl bg-stone-50 border border-stone-200">
+                <div className="min-w-0 pr-2">
+                  <p className="text-xs font-bold text-stone-800 truncate">{m.nome}</p>
+                  <p className="text-[11px] text-stone-500 truncate">{m.status_medium || 'Ativo'} • {m.cargo}</p>
+                </div>
+                <button
+                  onClick={() => toggleMensalidadeMedium(m)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition cursor-pointer hover:opacity-80 ${
+                    pago
+                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                      : 'bg-amber-100 text-amber-800 border border-amber-300'
+                  }`}
+                >
+                  {pago ? `✓ Pago (R$ ${Number(pagoReg.valor).toFixed(0)})` : 'Pendente'}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm">
+        <h2 className="font-bold text-base text-stone-800 mb-4">Movimentação Financeira Geral</h2>
         <form onSubmit={adicionarMovimento} className="grid grid-cols-1 sm:grid-cols-5 gap-2 mb-5 bg-stone-50 p-3 rounded-xl border border-stone-200">
           <select
             value={form.tipo}
@@ -1193,7 +1872,7 @@ function FinanceiroTab({ financeiro, setFinanceiro, currentUser, showToast }) {
           </select>
           <input
             type="text"
-            placeholder="Categoria (Ex: Luz, Velas, Mensalidade)"
+            placeholder="Categoria (Ex: Luz, Velas, Aluguel)"
             value={form.categoria}
             onChange={e => setForm({ ...form, categoria: e.target.value })}
             className="px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white"
@@ -1222,16 +1901,21 @@ function FinanceiroTab({ financeiro, setFinanceiro, currentUser, showToast }) {
         </form>
 
         <div className="space-y-2">
-          {financeiro.map(f => (
+          {movsGerais.map(f => (
             <div key={f.id} className="flex items-center justify-between p-3 rounded-xl bg-stone-50 border border-stone-200 text-xs">
               <div>
                 <span className="font-bold text-stone-800">{f.descricao}</span>
                 <span className="ml-2 px-2 py-0.5 bg-stone-200 rounded text-[10px]">{f.categoria}</span>
-                <p className="text-stone-400 mt-0.5">{f.data_movimento}</p>
+                <p className="text-stone-400 mt-0.5">{f.data_movimento} • {f.registrado_por}</p>
               </div>
-              <span className={`font-bold ${f.tipo === 'entrada' ? 'text-emerald-700' : 'text-rose-700'}`}>
-                {f.tipo === 'entrada' ? '+' : '-'} R$ {Number(f.valor).toFixed(2)}
-              </span>
+              <div className="flex items-center gap-3">
+                <span className={`font-bold ${f.tipo === 'entrada' ? 'text-emerald-700' : 'text-rose-700'}`}>
+                  {f.tipo === 'entrada' ? '+' : '-'} R$ {Number(f.valor).toFixed(2)}
+                </span>
+                <button onClick={() => excluirMovimento(f.id)} className="text-stone-400 hover:text-rose-600" title="Excluir lançamento">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -1240,10 +1924,138 @@ function FinanceiroTab({ financeiro, setFinanceiro, currentUser, showToast }) {
   );
 }
 
-/* ===================== 5. ABA CAIXINHA DO TERREIRO (DOAÇÕES) ===================== */
-function DoacoesTab({ campanhas, setCampanhas, financeiro, setFinanceiro, currentUser, isStaff, showToast }) {
+/* ===================== 5. ABA CAIXINHA DO TERREIRO ===================== */
+function DoacoesTab({
+  campanhas, setCampanhas, financeiro, setFinanceiro, currentUser,
+  canCaixinha, categoriasCaixinha, configCasa, showToast
+}) {
   const [valorDoacao, setValorDoacao] = useState('');
   const [campanhaSelecionada, setCampanhaSelecionada] = useState('');
+  const [novaCamp, setNovaCamp] = useState({ titulo: '', categoria: categoriasCaixinha[0] || 'Manutenção & Velas', descricao: '', meta: '' });
+
+  const [editandoId, setEditandoId] = useState(null);
+  const [editForm, setEditForm] = useState({ titulo: '', categoria: '', descricao: '', meta: '', arrecadado: '' });
+
+  const [movCampId, setMovCampId] = useState(null);
+  const [movForm, setMovForm] = useState({ tipo: 'saida', descricao: '', valor: '' });
+
+  const totalArrecadadoGeral = campanhas.reduce((acc, c) => acc + Number(c.arrecadado || 0), 0);
+
+  const criarCampanha = async (e) => {
+    e.preventDefault();
+    if (!novaCamp.titulo || !novaCamp.meta) return;
+
+    const payloadComCategoria = {
+      titulo: novaCamp.titulo,
+      categoria: novaCamp.categoria,
+      descricao: novaCamp.descricao,
+      meta: parseFloat(novaCamp.meta),
+      arrecadado: 0,
+      ativa: true
+    };
+
+    let res = await supabase.from('campanhas_doacao').insert([payloadComCategoria]).select().single();
+
+    if (res.error) {
+      res = await supabase
+        .from('campanhas_doacao')
+        .insert([{
+          titulo: novaCamp.titulo,
+          descricao: novaCamp.descricao,
+          meta: parseFloat(novaCamp.meta),
+          arrecadado: 0,
+          ativa: true
+        }])
+        .select()
+        .single();
+    }
+
+    if (!res.error && res.data) {
+      setCampanhas([res.data, ...campanhas]);
+      setNovaCamp({ titulo: '', categoria: categoriasCaixinha[0] || 'Manutenção & Velas', descricao: '', meta: '' });
+      showToast('Nova caixinha salva com sucesso!');
+    } else {
+      showToast('Erro ao criar caixinha: ' + (res.error?.message || 'verifique o banco.'));
+    }
+  };
+
+  const abrirEdicao = (c) => {
+    setEditandoId(c.id);
+    setEditForm({
+      titulo: c.titulo,
+      categoria: c.categoria || 'Geral',
+      descricao: c.descricao || '',
+      meta: c.meta,
+      arrecadado: c.arrecadado
+    });
+  };
+
+  const salvarEdicao = async (e) => {
+    e.preventDefault();
+    const { data, error } = await supabase
+      .from('campanhas_doacao')
+      .update({
+        titulo: editForm.titulo,
+        categoria: editForm.categoria,
+        descricao: editForm.descricao,
+        meta: parseFloat(editForm.meta),
+        arrecadado: parseFloat(editForm.arrecadado)
+      })
+      .eq('id', editandoId)
+      .select()
+      .single();
+
+    if (!error && data) {
+      setCampanhas(campanhas.map(c => c.id === editandoId ? data : c));
+      setEditandoId(null);
+      showToast('Caixinha atualizada com sucesso!');
+    }
+  };
+
+  const excluirCampanha = async (id) => {
+    await supabase.from('campanhas_doacao').delete().eq('id', id);
+    setCampanhas(campanhas.filter(c => c.id !== id));
+    showToast('Caixinha excluída.');
+  };
+
+  const movimentarCampanha = async (e) => {
+    e.preventDefault();
+    const camp = campanhas.find(c => c.id === movCampId);
+    const val = parseFloat(movForm.valor);
+    if (!camp || !val || val <= 0) return;
+
+    const novoSaldo = movForm.tipo === 'entrada'
+      ? Number(camp.arrecadado) + val
+      : Math.max(0, Number(camp.arrecadado) - val);
+
+    const { data: campAtualizada } = await supabase
+      .from('campanhas_doacao')
+      .update({ arrecadado: novoSaldo })
+      .eq('id', camp.id)
+      .select()
+      .single();
+
+    if (campAtualizada) {
+      setCampanhas(campanhas.map(c => c.id === camp.id ? campAtualizada : c));
+    }
+
+    const { data: fin } = await supabase
+      .from('financeiro')
+      .insert([{
+        tipo: movForm.tipo,
+        categoria: `Caixinha: ${camp.titulo}`,
+        descricao: movForm.descricao || (movForm.tipo === 'entrada' ? 'Reforço na caixinha' : 'Uso de recurso da caixinha'),
+        valor: val,
+        registrado_por: currentUser?.nome
+      }])
+      .select()
+      .single();
+
+    if (fin) setFinanceiro([fin, ...financeiro]);
+    setMovCampId(null);
+    setMovForm({ tipo: 'saida', descricao: '', valor: '' });
+    showToast('Movimentação registrada na caixinha!');
+  };
 
   const registrarDoacao = async (e) => {
     e.preventDefault();
@@ -1278,90 +2090,271 @@ function DoacoesTab({ campanhas, setCampanhas, financeiro, setFinanceiro, curren
 
     if (fin) setFinanceiro([fin, ...financeiro]);
     setValorDoacao('');
-    showToast('Gratidão! Sua doação foi registrada na Caixinha da Casa Bendizer.');
+    showToast('Gratidão! Sua doação foi registrada na Caixinha.');
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <div className="lg:col-span-2 space-y-4">
-        <h2 className="font-bold text-lg text-stone-800 flex items-center gap-2">
-          <HeartHandshake className="w-5 h-5 text-amber-600" />
-          Campanhas & Metas da Casa Bendizer
-        </h2>
-
-        {campanhas.map(c => {
-          const pct = Math.min(100, Math.round((Number(c.arrecadado) / Number(c.meta)) * 100));
-          return (
-            <div key={c.id} className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm">
-              <div className="flex justify-between items-start mb-2">
-                <div>
-                  <h3 className="font-bold text-stone-800">{c.titulo}</h3>
-                  <p className="text-xs text-stone-500 mt-0.5">{c.descricao}</p>
-                </div>
-                <span className="text-xs font-bold bg-amber-100 text-amber-900 px-2.5 py-1 rounded-lg">
-                  {pct}% atingido
-                </span>
-              </div>
-
-              <div className="w-full bg-stone-100 h-3 rounded-full overflow-hidden my-3">
-                <div className="bg-emerald-700 h-full transition-all" style={{ width: `${pct}%` }} />
-              </div>
-
-              <div className="flex justify-between text-xs font-semibold text-stone-600">
-                <span>Arrecadado: R$ {Number(c.arrecadado).toFixed(2)}</span>
-                <span>Meta: R$ {Number(c.meta).toFixed(2)}</span>
-              </div>
-            </div>
-          );
-        })}
+    <div className="space-y-6">
+      <div className="bg-emerald-950 text-white p-6 rounded-2xl shadow-sm flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p className="text-xs uppercase tracking-wider text-amber-300 font-bold">Transparência • Caixinha da {configCasa.nome_casa || 'Casa Bendizer'}</p>
+          <h2 className="text-2xl font-bold mt-1">Saldo Atual nas Caixinhas: R$ {totalArrecadadoGeral.toFixed(2)}</h2>
+          <p className="text-xs text-emerald-200 mt-1">Recursos destinados às velas, ervas, manutenção e trabalhos espirituais.</p>
+        </div>
       </div>
 
-      <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm h-fit">
-        <h3 className="font-bold text-base text-stone-800 mb-2">Contribuir com a Caixinha</h3>
-        <p className="text-xs text-stone-500 mb-4">
-          Registre sua contribuição voluntária para ajudar nas velas, ervas e manutenção da casa.
-        </p>
+      <PixBanner configCasa={configCasa} showToast={showToast} />
 
-        <form onSubmit={registrarDoacao} className="space-y-3">
-          {campanhas.length > 0 && (
-            <div>
-              <label className="block text-xs font-semibold text-stone-600 mb-1">Campanha</label>
-              <select
-                value={campanhaSelecionada}
-                onChange={e => setCampanhaSelecionada(e.target.value)}
-                className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
-              >
-                {campanhas.map(c => (
-                  <option key={c.id} value={c.id}>{c.titulo}</option>
-                ))}
-              </select>
-            </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-4">
+          {canCaixinha && (
+            <form onSubmit={criarCampanha} className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm space-y-3">
+              <h3 className="font-bold text-sm text-stone-800">Criar Nova Caixinha / Campanha</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                <input
+                  type="text"
+                  required
+                  placeholder="Título (Ex: Festa de Preto-Velho)"
+                  value={novaCamp.titulo}
+                  onChange={e => setNovaCamp({ ...novaCamp, titulo: e.target.value })}
+                  className="sm:col-span-2 px-3 py-2 border border-stone-200 rounded-xl text-xs"
+                />
+                <select
+                  value={novaCamp.categoria}
+                  onChange={e => setNovaCamp({ ...novaCamp, categoria: e.target.value })}
+                  className="px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
+                >
+                  {categoriasCaixinha.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  placeholder="Meta R$"
+                  value={novaCamp.meta}
+                  onChange={e => setNovaCamp({ ...novaCamp, meta: e.target.value })}
+                  className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
+                />
+              </div>
+              <input
+                type="text"
+                placeholder="Descrição / Finalidade desta caixinha"
+                value={novaCamp.descricao}
+                onChange={e => setNovaCamp({ ...novaCamp, descricao: e.target.value })}
+                className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs"
+              />
+              <button type="submit" className="px-4 py-2 bg-emerald-800 text-white text-xs font-semibold rounded-xl">
+                + Criar Caixinha
+              </button>
+            </form>
           )}
 
-          <div>
-            <label className="block text-xs font-semibold text-stone-600 mb-1">Valor da Doação (R$)</label>
-            <input
-              type="number"
-              step="0.01"
-              required
-              placeholder="Ex: 25.00"
-              value={valorDoacao}
-              onChange={e => setValorDoacao(e.target.value)}
-              className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm"
-            />
-          </div>
+          {campanhas.map(c => {
+            const pct = Math.min(100, Math.round((Number(c.arrecadado) / Math.max(1, Number(c.meta))) * 100));
+            return (
+              <div key={c.id} className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm space-y-3">
+                {editandoId === c.id ? (
+                  <form onSubmit={salvarEdicao} className="space-y-3 bg-amber-50/60 p-4 rounded-xl border border-amber-200">
+                    <p className="text-xs font-bold text-amber-950">Editando Caixinha</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        required
+                        value={editForm.titulo}
+                        onChange={e => setEditForm({ ...editForm, titulo: e.target.value })}
+                        className="px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
+                      />
+                      <select
+                        value={editForm.categoria}
+                        onChange={e => setEditForm({ ...editForm, categoria: e.target.value })}
+                        className="px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
+                      >
+                        {categoriasCaixinha.map(cat => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                      </select>
+                      <div>
+                        <label className="block text-[10px] font-bold text-stone-500">Saldo Atual (R$)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          required
+                          value={editForm.arrecadado}
+                          onChange={e => setEditForm({ ...editForm, arrecadado: e.target.value })}
+                          className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-stone-500">Meta (R$)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          required
+                          value={editForm.meta}
+                          onChange={e => setEditForm({ ...editForm, meta: e.target.value })}
+                          className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
+                        />
+                      </div>
+                    </div>
+                    <input
+                      type="text"
+                      value={editForm.descricao}
+                      onChange={e => setEditForm({ ...editForm, descricao: e.target.value })}
+                      placeholder="Descrição"
+                      className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
+                    />
+                    <div className="flex gap-2">
+                      <button type="submit" className="px-4 py-1.5 bg-emerald-800 text-white text-xs font-semibold rounded-lg">
+                        Salvar Edição
+                      </button>
+                      <button type="button" onClick={() => setEditandoId(null)} className="px-3 py-1.5 bg-stone-200 text-stone-700 text-xs font-semibold rounded-lg">
+                        Cancelar
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <>
+                    <div className="flex flex-wrap justify-between items-start gap-2">
+                      <div>
+                        <span className="text-[10px] uppercase font-bold tracking-wider bg-stone-100 text-stone-600 px-2 py-0.5 rounded">
+                          {c.categoria || 'Geral'}
+                        </span>
+                        <h3 className="font-bold text-stone-800 text-base mt-1">{c.titulo}</h3>
+                        <p className="text-xs text-stone-500 mt-0.5">{c.descricao}</p>
+                      </div>
+                      <span className="text-xs font-bold bg-amber-100 text-amber-900 px-2.5 py-1 rounded-lg">
+                        {pct}% atingido
+                      </span>
+                    </div>
 
-          <button type="submit" className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-emerald-950 font-bold rounded-xl text-xs transition">
-            Registrar Minha Doação
-          </button>
-        </form>
+                    <div className="w-full bg-stone-100 h-3 rounded-full overflow-hidden">
+                      <div className="bg-emerald-700 h-full transition-all" style={{ width: `${pct}%` }} />
+                    </div>
+
+                    <div className="flex justify-between text-xs font-semibold text-stone-600">
+                      <span>Saldo / Arrecadado: R$ {Number(c.arrecadado).toFixed(2)}</span>
+                      <span>Meta: R$ {Number(c.meta).toFixed(2)}</span>
+                    </div>
+
+                    {canCaixinha && (
+                      <div className="pt-3 border-t border-stone-100 flex flex-wrap gap-2">
+                        <button
+                          onClick={() => { setMovCampId(movCampId === c.id ? null : c.id); setMovForm({ tipo: 'saida', descricao: '', valor: '' }); }}
+                          className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 rounded-lg text-xs font-semibold flex items-center gap-1"
+                        >
+                          <ArrowUpDown className="w-3.5 h-3.5" /> Movimentar Valor
+                        </button>
+                        <button
+                          onClick={() => abrirEdicao(c)}
+                          className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-800 rounded-lg text-xs font-semibold flex items-center gap-1"
+                        >
+                          <Pencil className="w-3.5 h-3.5" /> Editar
+                        </button>
+                        <button
+                          onClick={() => excluirCampanha(c.id)}
+                          className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-xs font-semibold flex items-center gap-1 ml-auto"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" /> Excluir
+                        </button>
+                      </div>
+                    )}
+
+                    {movCampId === c.id && canCaixinha && (
+                      <form onSubmit={movimentarCampanha} className="mt-3 p-3.5 bg-stone-50 rounded-xl border border-stone-200 space-y-2">
+                        <p className="text-xs font-bold text-stone-800">Movimentar Saldo de "{c.titulo}"</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                          <select
+                            value={movForm.tipo}
+                            onChange={e => setMovForm({ ...movForm, tipo: e.target.value })}
+                            className="px-2.5 py-1.5 border border-stone-200 rounded-lg text-xs bg-white"
+                          >
+                            <option value="saida">Retirar / Usar (-)</option>
+                            <option value="entrada">Adicionar (+)</option>
+                          </select>
+                          <input
+                            type="text"
+                            required
+                            placeholder="Motivo (Ex: Compra de velas)"
+                            value={movForm.descricao}
+                            onChange={e => setMovForm({ ...movForm, descricao: e.target.value })}
+                            className="sm:col-span-2 px-2.5 py-1.5 border border-stone-200 rounded-lg text-xs bg-white"
+                          />
+                          <input
+                            type="number"
+                            step="0.01"
+                            required
+                            placeholder="Valor R$"
+                            value={movForm.valor}
+                            onChange={e => setMovForm({ ...movForm, valor: e.target.value })}
+                            className="px-2.5 py-1.5 border border-stone-200 rounded-lg text-xs bg-white"
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <button type="submit" className="px-3.5 py-1.5 bg-emerald-800 text-white text-xs font-semibold rounded-lg">
+                            Confirmar Movimentação
+                          </button>
+                          <button type="button" onClick={() => setMovCampId(null)} className="px-3 py-1.5 bg-stone-200 text-stone-700 text-xs font-semibold rounded-lg">
+                            Cancelar
+                          </button>
+                        </div>
+                      </form>
+                    )}
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm h-fit">
+          <h3 className="font-bold text-base text-stone-800 mb-2">Contribuir com a Caixinha</h3>
+          <p className="text-xs text-stone-500 mb-4">
+            Registre sua contribuição voluntária para ajudar nas velas, ervas e manutenção da casa.
+          </p>
+
+          <form onSubmit={registrarDoacao} className="space-y-3">
+            {campanhas.length > 0 && (
+              <div>
+                <label className="block text-xs font-semibold text-stone-600 mb-1">Caixinha / Destino</label>
+                <select
+                  value={campanhaSelecionada}
+                  onChange={e => setCampanhaSelecionada(e.target.value)}
+                  className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
+                >
+                  {campanhas.map(c => (
+                    <option key={c.id} value={c.id}>{c.titulo}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-semibold text-stone-600 mb-1">Valor da Doação (R$)</label>
+              <input
+                type="number"
+                step="0.01"
+                required
+                placeholder="Ex: 25.00"
+                value={valorDoacao}
+                onChange={e => setValorDoacao(e.target.value)}
+                className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm"
+              />
+            </div>
+
+            <button type="submit" className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-emerald-950 font-bold rounded-xl text-xs transition">
+              Registrar Minha Doação
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   );
 }
 
-/* ===================== 6. ABA CURIMBA (PONTOS, ÁUDIO & YOUTUBE) ===================== */
-function CurimbaTab({ pontos, setPontos, isStaff, showToast }) {
+/* ===================== 6. ABA CURIMBA ===================== */
+function CurimbaTab({ pontos, setPontos, currentUser, canCurimba, linhasCurimba, showToast }) {
   const [busca, setBusca] = useState('');
   const [filtroLinha, setFiltroLinha] = useState('Todas');
   const [novoPonto, setNovoPonto] = useState({
@@ -1371,15 +2364,49 @@ function CurimbaTab({ pontos, setPontos, isStaff, showToast }) {
   const cadastrarPonto = async (e) => {
     e.preventDefault();
     if (!novoPonto.titulo || !novoPonto.letra) return;
-    const { data } = await supabase.from('curimba_pontos').insert([novoPonto]).select().single();
+
+    const statusInicial = canCurimba ? 'aprovado' : 'pendente';
+    const payload = {
+      ...novoPonto,
+      status: statusInicial,
+      enviado_por: currentUser?.nome || 'Médium'
+    };
+
+    const { data } = await supabase.from('curimba_pontos').insert([payload]).select().single();
     if (data) {
       setPontos([data, ...pontos]);
       setNovoPonto({ titulo: '', linha: 'Caboclos', toque: 'Samba de Caboclo', letra: '', link_youtube: '', link_audio: '' });
-      showToast('Ponto cantado salvo no caderno da Curimba!');
+      showToast(
+        canCurimba
+          ? 'Ponto cantado publicado no caderno da Curimba!'
+          : 'Ponto enviado para análise da equipe da Curimba!'
+      );
     }
   };
 
-  const pontosFiltrados = pontos.filter(p => {
+  const aprovarPonto = async (id) => {
+    const { data } = await supabase
+      .from('curimba_pontos')
+      .update({ status: 'aprovado' })
+      .eq('id', id)
+      .select()
+      .single();
+    if (data) {
+      setPontos(pontos.map(p => p.id === id ? data : p));
+      showToast('Ponto aprovado e publicado para toda a corrente!');
+    }
+  };
+
+  const recusarPonto = async (id) => {
+    await supabase.from('curimba_pontos').delete().eq('id', id);
+    setPontos(pontos.filter(p => p.id !== id));
+    showToast('Ponto removido.');
+  };
+
+  const pontosPendentes = pontos.filter(p => p.status === 'pendente');
+  const pontosAprovados = pontos.filter(p => (p.status || 'aprovado') === 'aprovado');
+
+  const pontosFiltrados = pontosAprovados.filter(p => {
     const matchBusca = p.titulo.toLowerCase().includes(busca.toLowerCase()) || p.letra.toLowerCase().includes(busca.toLowerCase());
     const matchLinha = filtroLinha === 'Todas' || p.linha === filtroLinha;
     return matchBusca && matchLinha;
@@ -1387,79 +2414,111 @@ function CurimbaTab({ pontos, setPontos, isStaff, showToast }) {
 
   return (
     <div className="space-y-6">
-      {isStaff && (
-        <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm">
-          <h2 className="font-bold text-base text-stone-800 mb-3 flex items-center gap-2">
-            <Music className="w-5 h-5 text-emerald-700" />
-            Cadastrar Novo Ponto na Curimba
-          </h2>
-          <form onSubmit={cadastrarPonto} className="space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <input
-                type="text"
-                required
-                placeholder="Nome do Ponto"
-                value={novoPonto.titulo}
-                onChange={e => setNovoPonto({ ...novoPonto, titulo: e.target.value })}
-                className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
-              />
-              <select
-                value={novoPonto.linha}
-                onChange={e => setNovoPonto({ ...novoPonto, linha: e.target.value })}
-                className="px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
-              >
-                <option>Abertura / Defumação</option>
-                <option>Oxalá</option>
-                <option>Caboclos</option>
-                <option>Pretos-Velhos</option>
-                <option>Erês / Crianças</option>
-                <option>Exu e Pombagira</option>
-                <option>Boiadeiros / Marinheiros</option>
-                <option>Encerramento</option>
-              </select>
-              <input
-                type="text"
-                placeholder="Toque (Ex: Congo, Nagô, IJexá)"
-                value={novoPonto.toque}
-                onChange={e => setNovoPonto({ ...novoPonto, toque: e.target.value })}
-                className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
-              />
-            </div>
-
-            <textarea
-              rows={3}
-              required
-              placeholder="Escreva a letra completa do ponto aqui..."
-              value={novoPonto.letra}
-              onChange={e => setNovoPonto({ ...novoPonto, letra: e.target.value })}
-              className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs"
-            />
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <input
-                type="url"
-                placeholder="Link do YouTube (opcional)"
-                value={novoPonto.link_youtube}
-                onChange={e => setNovoPonto({ ...novoPonto, link_youtube: e.target.value })}
-                className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
-              />
-              <input
-                type="url"
-                placeholder="Link de Áudio / SoundCloud / Drive (opcional)"
-                value={novoPonto.link_audio}
-                onChange={e => setNovoPonto({ ...novoPonto, link_audio: e.target.value })}
-                className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
-              />
-            </div>
-
-            <button type="submit" className="px-5 py-2 bg-emerald-800 text-white text-xs font-semibold rounded-xl">
-              + Salvar Ponto
-            </button>
-          </form>
+      {canCurimba && pontosPendentes.length > 0 && (
+        <div className="bg-amber-50 border border-amber-300 p-5 rounded-2xl space-y-3">
+          <h3 className="font-bold text-sm text-amber-950 flex items-center gap-2">
+            <Clock className="w-4 h-4 text-amber-700" />
+            Pontos Aguardando Análise ({pontosPendentes.length})
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {pontosPendentes.map(p => (
+              <div key={p.id} className="bg-white p-4 rounded-xl border border-amber-200 shadow-sm space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-[11px] font-bold bg-amber-100 text-amber-900 px-2 py-0.5 rounded">{p.linha}</span>
+                  <span className="text-[11px] text-stone-500">Enviado por: <strong>{p.enviado_por}</strong></span>
+                </div>
+                <h4 className="font-bold text-sm text-stone-800">{p.titulo}</h4>
+                <pre className="whitespace-pre-wrap font-sans text-xs text-stone-600 bg-stone-50 p-2.5 rounded-lg">{p.letra}</pre>
+                <div className="flex gap-2 pt-2">
+                  <button
+                    onClick={() => aprovarPonto(p.id)}
+                    className="flex-1 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg flex items-center justify-center gap-1"
+                  >
+                    <Check className="w-3.5 h-3.5" /> Aprovar Ponto
+                  </button>
+                  <button
+                    onClick={() => recusarPonto(p.id)}
+                    className="px-3 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-800 text-xs font-semibold rounded-lg flex items-center gap-1"
+                  >
+                    <X className="w-3.5 h-3.5" /> Recusar
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* Filtros */}
+      <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm">
+        <h2 className="font-bold text-base text-stone-800 mb-1 flex items-center gap-2">
+          <Music className="w-5 h-5 text-emerald-700" />
+          {canCurimba ? 'Cadastrar Novo Ponto na Curimba' : 'Sugerir / Enviar Ponto para Análise'}
+        </h2>
+        {!canCurimba && (
+          <p className="text-xs text-stone-500 mb-3">
+            Os pontos enviados por médiuns passam pela revisão da equipe de Curimba antes de ficarem visíveis para todos.
+          </p>
+        )}
+        <form onSubmit={cadastrarPonto} className="space-y-3 mt-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <input
+              type="text"
+              required
+              placeholder="Nome do Ponto"
+              value={novoPonto.titulo}
+              onChange={e => setNovoPonto({ ...novoPonto, titulo: e.target.value })}
+              className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
+            />
+            <select
+              value={novoPonto.linha}
+              onChange={e => setNovoPonto({ ...novoPonto, linha: e.target.value })}
+              className="px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
+            >
+              {linhasCurimba.map(l => (
+                <option key={l} value={l}>{l}</option>
+              ))}
+            </select>
+            <input
+              type="text"
+              placeholder="Toque (Ex: Congo, Nagô, Ijexá)"
+              value={novoPonto.toque}
+              onChange={e => setNovoPonto({ ...novoPonto, toque: e.target.value })}
+              className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
+            />
+          </div>
+
+          <textarea
+            rows={3}
+            required
+            placeholder="Escreva a letra completa do ponto aqui..."
+            value={novoPonto.letra}
+            onChange={e => setNovoPonto({ ...novoPonto, letra: e.target.value })}
+            className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs"
+          />
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <input
+              type="url"
+              placeholder="Link do YouTube (opcional)"
+              value={novoPonto.link_youtube}
+              onChange={e => setNovoPonto({ ...novoPonto, link_youtube: e.target.value })}
+              className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
+            />
+            <input
+              type="url"
+              placeholder="Link de Áudio / SoundCloud / Drive (opcional)"
+              value={novoPonto.link_audio}
+              onChange={e => setNovoPonto({ ...novoPonto, link_audio: e.target.value })}
+              className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
+            />
+          </div>
+
+          <button type="submit" className="px-5 py-2 bg-emerald-800 text-white text-xs font-semibold rounded-xl">
+            {canCurimba ? '+ Publicar Ponto' : '+ Enviar para Análise'}
+          </button>
+        </form>
+      </div>
+
       <div className="flex flex-wrap gap-3">
         <input
           type="text"
@@ -1474,21 +2533,15 @@ function CurimbaTab({ pontos, setPontos, isStaff, showToast }) {
           className="px-4 py-2.5 bg-white border border-stone-200 rounded-xl text-xs"
         >
           <option value="Todas">Todas as Linhas</option>
-          <option>Abertura / Defumação</option>
-          <option>Oxalá</option>
-          <option>Caboclos</option>
-          <option>Pretos-Velhos</option>
-          <option>Erês / Crianças</option>
-          <option>Exu e Pombagira</option>
-          <option>Boiadeiros / Marinheiros</option>
-          <option>Encerramento</option>
+          {linhasCurimba.map(l => (
+            <option key={l} value={l}>{l}</option>
+          ))}
         </select>
       </div>
 
-      {/* Lista de Pontos */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {pontosFiltrados.length === 0 ? (
-          <p className="text-sm text-stone-500 col-span-2 text-center py-8">Nenhum ponto cadastrado nesta linha ainda.</p>
+          <p className="text-sm text-stone-500 col-span-2 text-center py-8">Nenhum ponto aprovado nesta linha ainda.</p>
         ) : (
           pontosFiltrados.map(p => (
             <div key={p.id} className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm flex flex-col justify-between">
@@ -1542,76 +2595,213 @@ function CurimbaTab({ pontos, setPontos, isStaff, showToast }) {
 }
 
 /* ===================== 7. ABA BIBLIOTECA ===================== */
-function BibliotecaTab({ livros, setLivros, mediums, currentUser, isStaff, showToast }) {
-  const [novoLivro, setNovoLivro] = useState({ titulo: '', autor: '', categoria: 'Fundamentos' });
+function BibliotecaTab({
+  livros, setLivros, mediums, notificacoes, setNotificacoes, currentUser,
+  canBiblioteca, categoriasBiblioteca, prazoDias, showToast
+}) {
+  const [novoLivro, setNovoLivro] = useState({
+    titulo: '', autor: '', categoria: categoriasBiblioteca[0] || 'Fundamentos', unidades: 1
+  });
+
+  const adicionarDias = (dias) => {
+    const d = new Date();
+    d.setDate(d.getDate() + dias);
+    return d.toISOString().slice(0, 10);
+  };
+
+  const hojeStr = new Date().toISOString().slice(0, 10);
 
   const adicionarLivro = async (e) => {
     e.preventDefault();
     if (!novoLivro.titulo) return;
-    const { data } = await supabase.from('biblioteca').insert([novoLivro]).select().single();
+    const payload = {
+      titulo: novoLivro.titulo,
+      autor: novoLivro.autor,
+      categoria: novoLivro.categoria,
+      unidades: parseInt(novoLivro.unidades, 10) || 1,
+      status: 'Disponível',
+      reservas: []
+    };
+    const { data } = await supabase.from('biblioteca').insert([payload]).select().single();
     if (data) {
       setLivros([...livros, data]);
-      setNovoLivro({ titulo: '', autor: '', categoria: 'Fundamentos' });
+      setNovoLivro({ titulo: '', autor: '', categoria: categoriasBiblioteca[0] || 'Fundamentos', unidades: 1 });
       showToast('Livro adicionado ao acervo da Casa Bendizer!');
     }
   };
 
-  const emprestarOuDevolver = async (livro) => {
-    if (livro.status === 'Disponível') {
-      const { data } = await supabase
-        .from('biblioteca')
-        .update({ status: 'Emprestado', emprestado_para: currentUser?.id })
-        .eq('id', livro.id)
-        .select()
-        .single();
-      if (data) {
-        setLivros(livros.map(l => l.id === livro.id ? data : l));
-        showToast('Livro reservado/emprestado para você!');
-      }
-    } else if (isStaff || livro.emprestado_para === currentUser?.id) {
-      const { data } = await supabase
-        .from('biblioteca')
-        .update({ status: 'Disponível', emprestado_para: null })
-        .eq('id', livro.id)
-        .select()
-        .single();
-      if (data) {
-        setLivros(livros.map(l => l.id === livro.id ? data : l));
-        showToast('Devolução registrada com sucesso!');
-      }
+  const pegarEmprestado = async (livro) => {
+    const hoje = new Date().toISOString().slice(0, 10);
+    const devolucao = adicionarDias(prazoDias);
+    const reservasAtualizadas = (livro.reservas || []).filter(r => r.medium_id !== currentUser?.id);
+
+    const { data } = await supabase
+      .from('biblioteca')
+      .update({
+        status: 'Emprestado',
+        emprestado_para: currentUser?.id,
+        data_emprestimo: hoje,
+        data_devolucao_prevista: devolucao,
+        reservas: reservasAtualizadas
+      })
+      .eq('id', livro.id)
+      .select()
+      .single();
+
+    if (data) {
+      setLivros(livros.map(l => l.id === livro.id ? data : l));
+      showToast(`Empréstimo registrado! Devolução prevista em ${prazoDias} dias (${devolucao.split('-').reverse().join('/')}).`);
     }
   };
 
+  const renovarEmprestimo = async (livro) => {
+    const novaDevolucao = adicionarDias(prazoDias);
+    const { data } = await supabase
+      .from('biblioteca')
+      .update({ data_devolucao_prevista: novaDevolucao })
+      .eq('id', livro.id)
+      .select()
+      .single();
+
+    if (data) {
+      setLivros(livros.map(l => l.id === livro.id ? data : l));
+      showToast(`Empréstimo renovado por mais ${prazoDias} dias! Novo prazo: ${novaDevolucao.split('-').reverse().join('/')}.`);
+    }
+  };
+
+  const devolverLivro = async (livro) => {
+    const { data } = await supabase
+      .from('biblioteca')
+      .update({
+        status: 'Disponível',
+        emprestado_para: null,
+        data_emprestimo: null,
+        data_devolucao_prevista: null
+      })
+      .eq('id', livro.id)
+      .select()
+      .single();
+
+    if (data) {
+      setLivros(livros.map(l => l.id === livro.id ? data : l));
+      showToast('Devolução registrada com sucesso!');
+    }
+  };
+
+  const reservarLivro = async (livro) => {
+    const atuais = livro.reservas || [];
+    if (atuais.some(r => r.medium_id === currentUser?.id)) {
+      showToast('Você já está na fila de reserva deste livro.');
+      return;
+    }
+    const novasReservas = [...atuais, { medium_id: currentUser?.id, nome: currentUser?.nome, data: hojeStr }];
+    const { data } = await supabase
+      .from('biblioteca')
+      .update({ reservas: novasReservas })
+      .eq('id', livro.id)
+      .select()
+      .single();
+
+    if (data) {
+      setLivros(livros.map(l => l.id === livro.id ? data : l));
+      showToast('Reserva registrada! Você será avisado(a) quando o livro voltar.');
+    }
+  };
+
+  const notificarVencimento = async (livro, portador) => {
+    const msg = `Olá, ${portador?.nome || 'Médium'}! O prazo de ${prazoDias} dias do livro "${livro.titulo}" da Biblioteca venceu em ${livro.data_devolucao_prevista?.split('-').reverse().join('/')}. Por favor, devolva ou renove na plataforma.`;
+
+    const { data } = await supabase
+      .from('notificacoes')
+      .insert([{ titulo: `Devolução de Livro: ${livro.titulo}`, mensagem: msg, destinatario_id: portador?.id || null }])
+      .select()
+      .single();
+
+    if (data) setNotificacoes([data, ...notificacoes]);
+
+    if (portador?.telefone) {
+      const num = portador.telefone.replace(/\D/g, '');
+      window.open(`https://wa.me/55${num}?text=${encodeURIComponent(msg)}`, '_blank');
+    }
+    showToast('Notificação de vencimento enviada!');
+  };
+
+  const livrosVencidos = livros.filter(
+    l => l.status === 'Emprestado' && l.data_devolucao_prevista && l.data_devolucao_prevista < hojeStr
+  );
+
   return (
     <div className="space-y-6">
-      {isStaff && (
+      {livrosVencidos.length > 0 && (
+        <div className="bg-rose-50 border border-rose-300 p-4 rounded-2xl space-y-2">
+          <h3 className="font-bold text-sm text-rose-900 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-600" />
+            Empréstimos com Prazo Vencido ({livrosVencidos.length})
+          </h3>
+          {livrosVencidos.map(l => {
+            const portador = mediums.find(m => m.id === l.emprestado_para);
+            return (
+              <div key={l.id} className="flex flex-wrap items-center justify-between gap-2 bg-white p-3 rounded-xl border border-rose-200 text-xs">
+                <span>
+                  <strong>{l.titulo}</strong> está com <strong>{portador?.nome || 'Médium'}</strong> (venceu em {l.data_devolucao_prevista?.split('-').reverse().join('/')})
+                </span>
+                {(canBiblioteca || l.emprestado_para === currentUser?.id) && (
+                  <button
+                    onClick={() => notificarVencimento(l, portador)}
+                    className="px-3 py-1.5 bg-rose-700 hover:bg-rose-800 text-white font-semibold rounded-lg"
+                  >
+                    Enviar Notificação / WhatsApp
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {canBiblioteca && (
         <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
-          <h2 className="font-bold text-base text-stone-800 mb-3">Cadastrar Novo Livro / Apostila</h2>
-          <form onSubmit={adicionarLivro} className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+          <h2 className="font-bold text-base text-stone-800 mb-3">Cadastrar Livro na Biblioteca</h2>
+          <form onSubmit={adicionarLivro} className="grid grid-cols-1 sm:grid-cols-5 gap-2">
             <input
               type="text"
               required
               placeholder="Título da Obra"
               value={novoLivro.titulo}
               onChange={e => setNovoLivro({ ...novoLivro, titulo: e.target.value })}
-              className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
+              className="sm:col-span-2 px-3 py-2 border border-stone-200 rounded-xl text-xs"
             />
             <input
               type="text"
+              required
               placeholder="Autor / Espírito"
               value={novoLivro.autor}
               onChange={e => setNovoLivro({ ...novoLivro, autor: e.target.value })}
               className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
             />
-            <input
-              type="text"
-              placeholder="Categoria (Ex: Ervas, Orixás)"
-              value={novoLivro.categoria}
-              onChange={e => setNovoLivro({ ...novoLivro, categoria: e.target.value })}
-              className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
-            />
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={1}
+                required
+                title="Quantidade de unidades"
+                placeholder="Qtd"
+                value={novoLivro.unidades}
+                onChange={e => setNovoLivro({ ...novoLivro, unidades: e.target.value })}
+                className="w-16 px-2.5 py-2 border border-stone-200 rounded-xl text-xs"
+              />
+              <select
+                value={novoLivro.categoria}
+                onChange={e => setNovoLivro({ ...novoLivro, categoria: e.target.value })}
+                className="flex-1 px-2.5 py-2 border border-stone-200 rounded-xl text-xs bg-white"
+              >
+                {categoriasBiblioteca.map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </div>
             <button type="submit" className="bg-emerald-800 text-white text-xs font-semibold rounded-xl py-2">
-              + Adicionar ao Acervo
+              + Cadastrar Livro
             </button>
           </form>
         </div>
@@ -1623,27 +2813,82 @@ function BibliotecaTab({ livros, setLivros, mediums, currentUser, isStaff, showT
         ) : (
           livros.map(l => {
             const portador = mediums.find(m => m.id === l.emprestado_para);
+            const isMine = l.emprestado_para === currentUser?.id;
+            const vencido = l.status === 'Emprestado' && l.data_devolucao_prevista && l.data_devolucao_prevista < hojeStr;
+            const reservas = l.reservas || [];
+
             return (
               <div key={l.id} className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm flex flex-col justify-between">
                 <div>
-                  <span className="text-[10px] uppercase font-bold tracking-wider text-stone-400">{l.categoria}</span>
+                  <div className="flex items-center justify-between text-[10px] uppercase font-bold tracking-wider text-stone-400">
+                    <span>{l.categoria || 'Acervo'}</span>
+                    <span>{l.unidades || 1} unid.</span>
+                  </div>
                   <h3 className="font-bold text-stone-800 text-sm mt-1">{l.titulo}</h3>
                   <p className="text-xs text-stone-500 mt-0.5">{l.autor}</p>
+
+                  {l.status === 'Emprestado' && (
+                    <div className={`mt-3 p-2.5 rounded-xl text-xs border ${vencido ? 'bg-rose-50 border-rose-200 text-rose-900' : 'bg-amber-50 border-amber-200 text-amber-950'}`}>
+                      <p><strong>Com:</strong> {portador?.nome || 'Médium'}</p>
+                      {l.data_devolucao_prevista && (
+                        <p className="mt-0.5">
+                          <strong>Devolução ({prazoDias} dias):</strong> {l.data_devolucao_prevista.split('-').reverse().join('/')}
+                          {vencido && <span className="ml-1 font-bold text-rose-700">(VENCIDO)</span>}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {reservas.length > 0 && (
+                    <p className="text-[11px] text-emerald-800 mt-2 font-medium">
+                      Fila de reserva: {reservas.map(r => r.nome).join(', ')}
+                    </p>
+                  )}
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-stone-100 flex items-center justify-between">
+                <div className="mt-4 pt-3 border-t border-stone-100 flex flex-wrap items-center justify-between gap-2">
                   <span className={`text-xs font-bold ${l.status === 'Disponível' ? 'text-emerald-700' : 'text-amber-700'}`}>
-                    {l.status === 'Disponível' ? '● Disponível' : `● Com ${portador?.nome || 'Médium'}`}
+                    {l.status === 'Disponível' ? '● Disponível' : '● Emprestado'}
                   </span>
 
-                  {(l.status === 'Disponível' || isStaff || l.emprestado_para === currentUser?.id) && (
-                    <button
-                      onClick={() => emprestarOuDevolver(l)}
-                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-stone-100 hover:bg-stone-200 text-stone-800"
-                    >
-                      {l.status === 'Disponível' ? 'Pegar Emprestado' : 'Devolver'}
-                    </button>
-                  )}
+                  <div className="flex flex-wrap gap-1.5">
+                    {l.status === 'Disponível' && (
+                      <button
+                        onClick={() => pegarEmprestado(l)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-800 hover:bg-emerald-900 text-white"
+                      >
+                        Pegar ({prazoDias} dias)
+                      </button>
+                    )}
+
+                    {l.status === 'Emprestado' && (isMine || canBiblioteca) && (
+                      <>
+                        {reservas.length === 0 && (
+                          <button
+                            onClick={() => renovarEmprestimo(l)}
+                            className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-100 hover:bg-amber-200 text-amber-900 flex items-center gap-1"
+                          >
+                            <RefreshCw className="w-3 h-3" /> Renovar
+                          </button>
+                        )}
+                        <button
+                          onClick={() => devolverLivro(l)}
+                          className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-stone-200 hover:bg-stone-300 text-stone-800"
+                        >
+                          Devolver
+                        </button>
+                      </>
+                    )}
+
+                    {l.status === 'Emprestado' && !isMine && (
+                      <button
+                        onClick={() => reservarLivro(l)}
+                        className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 border border-emerald-300 text-emerald-900 hover:bg-emerald-100 flex items-center gap-1"
+                      >
+                        <BookmarkPlus className="w-3 h-3" /> Reservar
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -1655,7 +2900,7 @@ function BibliotecaTab({ livros, setLivros, mediums, currentUser, isStaff, showT
 }
 
 /* ===================== 8. ABA AVISOS & LEMBRETES WHATSAPP ===================== */
-function MensagensTab({ notificacoes, setNotificacoes, mediums, bebidas, giras, currentUser, isStaff, showToast }) {
+function MensagensTab({ notificacoes, setNotificacoes, mediums, bebidas, canCadastros, canBebidas, showToast }) {
   const [titulo, setTitulo] = useState('');
   const [mensagem, setMensagem] = useState('');
 
@@ -1684,12 +2929,12 @@ function MensagensTab({ notificacoes, setNotificacoes, mediums, bebidas, giras, 
   };
 
   const pendentesBebida = mediums.filter(m => !bebidas.some(b => b.medium_id === m.id && b.pago));
+  const canPost = canCadastros || canBebidas;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {isStaff && (
+      {canPost && (
         <div className="space-y-6">
-          {/* Publicar no Mural Interno */}
           <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm">
             <h2 className="font-bold text-base text-stone-800 mb-3 flex items-center gap-2">
               <Bell className="w-5 h-5 text-emerald-700" />
@@ -1718,42 +2963,42 @@ function MensagensTab({ notificacoes, setNotificacoes, mediums, bebidas, giras, 
             </form>
           </div>
 
-          {/* Lembretes Rápidos via WhatsApp */}
-          <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm">
-            <h2 className="font-bold text-base text-stone-800 mb-2 flex items-center gap-2">
-              <MessageCircle className="w-5 h-5 text-green-600" />
-              Lembretes Rápidos no WhatsApp
-            </h2>
-            <p className="text-xs text-stone-500 mb-4">
-              Clique para enviar lembrete direto no WhatsApp dos médiuns pendentes na caixinha de bebidas ({MES_ATUAL}):
-            </p>
+          {canBebidas && (
+            <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm">
+              <h2 className="font-bold text-base text-stone-800 mb-2 flex items-center gap-2">
+                <MessageCircle className="w-5 h-5 text-green-600" />
+                Lembretes Rápidos no WhatsApp (Bebidas)
+              </h2>
+              <p className="text-xs text-stone-500 mb-4">
+                Médiuns pendentes na caixinha de bebidas ({MES_ATUAL}):
+              </p>
 
-            {pendentesBebida.length === 0 ? (
-              <p className="text-xs text-emerald-700 font-semibold">Todos os médiuns já contribuíram este mês!</p>
-            ) : (
-              <div className="space-y-2">
-                {pendentesBebida.map(m => (
-                  <div key={m.id} className="flex items-center justify-between p-2.5 rounded-xl bg-stone-50 border border-stone-200 text-xs">
-                    <span className="font-semibold text-stone-800">{m.nome}</span>
-                    <button
-                      onClick={() => abrirWhatsApp(
-                        m.telefone,
-                        `Axé, ${m.nome}! Passando para lembrar da contribuição mensal de R$ 10,00 da Caixinha de Bebidas da Casa Bendizer (${MES_ATUAL}).`
-                      )}
-                      className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg flex items-center gap-1"
-                    >
-                      <Send className="w-3 h-3" /> Cobrar no WhatsApp
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+              {pendentesBebida.length === 0 ? (
+                <p className="text-xs text-emerald-700 font-semibold">Todos os médiuns já contribuíram este mês!</p>
+              ) : (
+                <div className="space-y-2">
+                  {pendentesBebida.map(m => (
+                    <div key={m.id} className="flex items-center justify-between p-2.5 rounded-xl bg-stone-50 border border-stone-200 text-xs">
+                      <span className="font-semibold text-stone-800">{m.nome}</span>
+                      <button
+                        onClick={() => abrirWhatsApp(
+                          m.telefone,
+                          `Axé, ${m.nome}! Passando para lembrar da contribuição mensal de R$ 10,00 da Caixinha de Bebidas da Casa Bendizer (${MES_ATUAL}).`
+                        )}
+                        className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg flex items-center gap-1"
+                      >
+                        <Send className="w-3 h-3" /> Cobrar no WhatsApp
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Mural de Avisos */}
-      <div className={`${isStaff ? '' : 'lg:col-span-2'} bg-white p-6 rounded-2xl border border-stone-200 shadow-sm`}>
+      <div className={`${canPost ? '' : 'lg:col-span-2'} bg-white p-6 rounded-2xl border border-stone-200 shadow-sm`}>
         <h2 className="font-bold text-base text-stone-800 mb-4">Mural de Avisos da Casa Bendizer</h2>
         {notificacoes.length === 0 ? (
           <p className="text-xs text-stone-500 text-center py-8">Nenhum comunicado publicado ainda.</p>
@@ -1772,6 +3017,487 @@ function MensagensTab({ notificacoes, setNotificacoes, mediums, bebidas, giras, 
             ))}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ===================== 9. ABA CONFIGURAÇÕES (EXCLUSIVO ADMIN GERAL) ===================== */
+function ConfiguracoesTab({
+  configCasa, salvarConfigCasa, mediums, setMediums, giras,
+  listasCustom, onAddLista, onRemoveLista, currentUser, showToast
+}) {
+  const [formConfig, setFormConfig] = useState({
+    ...configCasa,
+    email_admin_boletim: configCasa.email_admin_boletim || currentUser?.email || ''
+  });
+  const [tipoLista, setTipoLista] = useState('linha_curimba');
+  const [valorLista, setValorLista] = useState('');
+
+  useEffect(() => {
+    setFormConfig({
+      ...configCasa,
+      email_admin_boletim: configCasa.email_admin_boletim || currentUser?.email || ''
+    });
+  }, [configCasa, currentUser?.email]);
+
+  const gerarTextoBoletimPadrao = (nomeCasa) => {
+    const girasDoMes = giras.filter(g => (g.data_gira || '').startsWith(MES_ATUAL));
+    const aniversariantesDoMes = mediums.filter(m => {
+      if (!m.data_nascimento) return false;
+      return parseInt(m.data_nascimento.split('-')[1], 10) === MES_NUMERO;
+    });
+
+    const textoGiras = girasDoMes.length > 0
+      ? girasDoMes.map(g => `• Dia ${g.data_gira.split('-')[2]}/${g.data_gira.split('-')[1]} às ${g.horario} — ${g.titulo}`).join('\n')
+      : '• Nenhuma gira cadastrada no calendário para este mês ainda.';
+
+    const textoAniversariantes = aniversariantesDoMes.length > 0
+      ? aniversariantesDoMes.map(a => `• Dia ${a.data_nascimento.split('-')[2]}/${a.data_nascimento.split('-')[1]} — ${a.nome}`).join('\n')
+      : '• Nenhum aniversariante cadastrado neste mês.';
+
+    return `Axé a todos da ${nomeCasa || 'Casa Bendizer'}!\n\nSegue o nosso informativo mensal de ${NOME_MES_ATUAL}:\n\n📅 CALENDÁRIO DE GIRAS DO MÊS:\n${textoGiras}\n\n🎂 ANIVERSARIANTES DO MÊS:\n${textoAniversariantes}\n\nQue Oxalá abençoe a caminhada de todos!`;
+  };
+
+  const [assuntoBoletim, setAssuntoBoletim] = useState(
+    `Calendário de Giras & Aniversariantes — ${configCasa.nome_casa || 'Casa Bendizer'} (${NOME_MES_ATUAL})`
+  );
+  const [corpoBoletim, setCorpoBoletim] = useState(() => gerarTextoBoletimPadrao(configCasa.nome_casa));
+
+  // Estado para Comunicado Livre por E-mail a todos
+  const [assuntoLivre, setAssuntoLivre] = useState('');
+  const [corpoLivre, setCorpoLivre] = useState('');
+  const [incluirAfastados, setIncluirAfastados] = useState(false);
+
+  const emailsDestinatarios = Array.from(new Set([
+    ...mediums
+      .filter(m => (incluirAfastados ? true : (m.status_medium || 'Ativo') === 'Ativo') && m.email)
+      .map(m => m.email),
+    ...(formConfig.email_admin_boletim ? [formConfig.email_admin_boletim] : [])
+  ]));
+
+  const dispararBoletimEmail = async () => {
+    const bcc = emailsDestinatarios.join(',');
+    const mailto = `mailto:${encodeURIComponent(formConfig.email_admin_boletim || '')}?bcc=${encodeURIComponent(bcc)}&subject=${encodeURIComponent(assuntoBoletim)}&body=${encodeURIComponent(corpoBoletim)}`;
+    window.open(mailto, '_blank');
+
+    // Registra que o boletim do mês atual já foi enviado
+    await salvarConfigCasa({ ...formConfig, ultimo_boletim_enviado: MES_ATUAL });
+  };
+
+  const dispararComunicadoLivreEmail = (e) => {
+    e.preventDefault();
+    if (!assuntoLivre.trim() || !corpoLivre.trim()) return;
+    const bcc = emailsDestinatarios.join(',');
+    const mailto = `mailto:${encodeURIComponent(formConfig.email_admin_boletim || '')}?bcc=${encodeURIComponent(bcc)}&subject=${encodeURIComponent(assuntoLivre)}&body=${encodeURIComponent(corpoLivre)}`;
+    window.open(mailto, '_blank');
+    showToast('Abrindo seu e-mail com todos os destinatários preenchidos!');
+  };
+
+  const handleSalvarGeral = async (e) => {
+    e.preventDefault();
+    await salvarConfigCasa({
+      ...formConfig,
+      valor_mensalidade_padrao: parseFloat(formConfig.valor_mensalidade_padrao) || 50,
+      dia_vencimento: parseInt(formConfig.dia_vencimento, 10) || 10,
+      prazo_biblioteca_dias: parseInt(formConfig.prazo_biblioteca_dias, 10) || 20,
+    });
+  };
+
+  const handleAddOpcao = (e) => {
+    e.preventDefault();
+    if (!valorLista.trim()) return;
+    onAddLista(tipoLista, valorLista);
+    setValorLista('');
+  };
+
+  const togglePermissaoRapida = async (medium, modId) => {
+    const atuais = medium.permissoes || [];
+    const novas = atuais.includes(modId)
+      ? atuais.filter(p => p !== modId)
+      : [...atuais, modId];
+
+    const { data } = await supabase
+      .from('mediums')
+      .update({ permissoes: novas })
+      .eq('id', medium.id)
+      .select()
+      .single();
+
+    if (data) {
+      setMediums(mediums.map(m => m.id === medium.id ? data : m));
+      showToast(`Permissões de ${medium.nome} atualizadas!`);
+    }
+  };
+
+  const labelsTipos = {
+    linha_curimba: 'Linha da Curimba',
+    linha_entidade: 'Linha de Entidade',
+    categoria_biblioteca: 'Categoria Biblioteca',
+    categoria_caixinha: 'Categoria Caixinha',
+    cargo_casa: 'Cargo da Casa'
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* 1. BOLETIM MENSAL POR E-MAIL (DIA 1º) */}
+      <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="font-bold text-base text-stone-800 flex items-center gap-2">
+              <Mail className="w-5 h-5 text-emerald-700" />
+              Boletim Mensal por E-mail (Calendário de Giras & Aniversariantes)
+            </h2>
+            <p className="text-xs text-stone-500 mt-0.5">
+              Todo dia 1º do mês o sistema alerta na tela inicial para disparo com 1 clique para {emailsDestinatarios.length} e-mail(s) ativo(s).
+            </p>
+          </div>
+          <span className={`text-xs font-bold px-3 py-1 rounded-full ${
+            formConfig.ultimo_boletim_enviado === MES_ATUAL
+              ? 'bg-emerald-100 text-emerald-800'
+              : 'bg-amber-100 text-amber-900'
+          }`}>
+            {formConfig.ultimo_boletim_enviado === MES_ATUAL
+              ? `✓ Enviado em ${MES_ATUAL}`
+              : `Pendente (${MES_ATUAL})`}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-semibold text-stone-600 mb-1">E-mail da Administração (Recebimento / Cópia)</label>
+            <input
+              type="email"
+              value={formConfig.email_admin_boletim || ''}
+              onChange={e => setFormConfig({ ...formConfig, email_admin_boletim: e.target.value })}
+              placeholder="administracao@casabendizer.com.br"
+              className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs"
+            />
+          </div>
+          <div className="flex items-end gap-2">
+            <button
+              type="button"
+              onClick={dispararBoletimEmail}
+              className="flex-1 py-2.5 px-4 bg-emerald-800 hover:bg-emerald-900 text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5"
+            >
+              <Send className="w-3.5 h-3.5" /> Enviar E-mail do Mês Agora
+            </button>
+            <button
+              type="button"
+              onClick={() => { navigator.clipboard.writeText(corpoBoletim); showToast('Texto do boletim copiado para WhatsApp!'); }}
+              className="py-2.5 px-4 bg-stone-100 hover:bg-stone-200 text-stone-800 font-semibold rounded-xl text-xs flex items-center gap-1.5"
+            >
+              <Copy className="w-3.5 h-3.5" /> Copiar Texto
+            </button>
+          </div>
+        </div>
+
+        <div className="bg-stone-50 border border-stone-200 rounded-xl p-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[11px] font-bold text-stone-600 uppercase">Editar Assunto e Mensagem do Boletim ({NOME_MES_ATUAL}):</p>
+            <button
+              type="button"
+              onClick={() => {
+                setAssuntoBoletim(`Calendário de Giras & Aniversariantes — ${formConfig.nome_casa || 'Casa Bendizer'} (${NOME_MES_ATUAL})`);
+                setCorpoBoletim(gerarTextoBoletimPadrao(formConfig.nome_casa));
+                showToast('Texto padrão do mês restaurado!');
+              }}
+              className="text-[11px] font-semibold text-emerald-800 hover:underline flex items-center gap-1"
+            >
+              <RefreshCw className="w-3 h-3" /> Restaurar Padrão do Mês
+            </button>
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-stone-600 mb-1">Assunto do E-mail</label>
+            <input
+              type="text"
+              value={assuntoBoletim}
+              onChange={e => setAssuntoBoletim(e.target.value)}
+              className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white font-medium"
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-stone-600 mb-1">Texto da Mensagem (livre para editar antes de enviar)</label>
+            <textarea
+              rows={7}
+              value={corpoBoletim}
+              onChange={e => setCorpoBoletim(e.target.value)}
+              className="w-full px-3 py-2.5 border border-stone-200 rounded-xl text-xs bg-white leading-relaxed"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* 1B. ENVIAR MENSAGEM / COMUNICADO LIVRE POR E-MAIL A TODOS */}
+      <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="font-bold text-base text-stone-800 flex items-center gap-2">
+              <Send className="w-5 h-5 text-emerald-700" />
+              Enviar Comunicado Livre por E-mail a Todos
+            </h2>
+            <p className="text-xs text-stone-500 mt-0.5">
+              Escreva qualquer recado, convocação ou aviso extraordinário para disparar por e-mail para toda a corrente ({emailsDestinatarios.length} destinatário(s)).
+            </p>
+          </div>
+          <label className="flex items-center gap-2 text-xs font-medium text-stone-600 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={incluirAfastados}
+              onChange={e => setIncluirAfastados(e.target.checked)}
+              className="rounded text-emerald-700"
+            />
+            Incluir afastados/suspensos
+          </label>
+        </div>
+
+        <form onSubmit={dispararComunicadoLivreEmail} className="space-y-3">
+          <div>
+            <label className="block text-xs font-semibold text-stone-600 mb-1">Assunto do E-mail</label>
+            <input
+              type="text"
+              required
+              value={assuntoLivre}
+              onChange={e => setAssuntoLivre(e.target.value)}
+              placeholder="Ex: Convocação para mutirão de limpeza / Aviso importante da gira"
+              className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-stone-600 mb-1">Mensagem para a Corrente</label>
+            <textarea
+              rows={4}
+              required
+              value={corpoLivre}
+              onChange={e => setCorpoLivre(e.target.value)}
+              placeholder="Escreva aqui o comunicado completo que será enviado por e-mail a todos..."
+              className="w-full px-3 py-2.5 border border-stone-200 rounded-xl text-xs leading-relaxed"
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="submit"
+              className="py-2.5 px-5 bg-emerald-800 hover:bg-emerald-900 text-white font-semibold rounded-xl text-xs flex items-center gap-1.5"
+            >
+              <Mail className="w-3.5 h-3.5" /> Enviar E-mail para Todos ({emailsDestinatarios.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!corpoLivre.trim()) return;
+                navigator.clipboard.writeText(`${assuntoLivre ? `*${assuntoLivre}*\n\n` : ''}${corpoLivre}`);
+                showToast('Mensagem copiada para colar no WhatsApp!');
+              }}
+              className="py-2.5 px-4 bg-stone-100 hover:bg-stone-200 text-stone-800 font-semibold rounded-xl text-xs flex items-center gap-1.5"
+            >
+              <Copy className="w-3.5 h-3.5" /> Copiar para WhatsApp
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* 2. DADOS DA CASA, PIX & PARÂMETROS */}
+      <form onSubmit={handleSalvarGeral} className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm space-y-5">
+        <h2 className="font-bold text-base text-stone-800 flex items-center gap-2">
+          <Settings className="w-5 h-5 text-emerald-700" />
+          Parâmetros Gerais, PIX & Regras da Casa
+        </h2>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-xs font-semibold text-stone-600 mb-1">Nome da Casa</label>
+            <input
+              type="text"
+              value={formConfig.nome_casa || ''}
+              onChange={e => setFormConfig({ ...formConfig, nome_casa: e.target.value })}
+              className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-stone-600 mb-1">Horário Padrão das Giras</label>
+            <input
+              type="text"
+              value={formConfig.horario_gira_padrao || ''}
+              onChange={e => setFormConfig({ ...formConfig, horario_gira_padrao: e.target.value })}
+              className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-stone-600 mb-1">Prazo Biblioteca (Dias)</label>
+            <input
+              type="number"
+              min={1}
+              value={formConfig.prazo_biblioteca_dias || 20}
+              onChange={e => setFormConfig({ ...formConfig, prazo_biblioteca_dias: e.target.value })}
+              className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 bg-amber-50/60 p-4 rounded-xl border border-amber-200/80">
+          <div>
+            <label className="block text-xs font-semibold text-stone-700 mb-1">Chave PIX Oficial</label>
+            <input
+              type="text"
+              value={formConfig.chave_pix || ''}
+              onChange={e => setFormConfig({ ...formConfig, chave_pix: e.target.value })}
+              placeholder="CPF, CNPJ, E-mail ou Celular"
+              className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-stone-700 mb-1">Nome do Favorecido PIX</label>
+            <input
+              type="text"
+              value={formConfig.favorecido_pix || ''}
+              onChange={e => setFormConfig({ ...formConfig, favorecido_pix: e.target.value })}
+              placeholder="Nome que aparece no banco"
+              className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-stone-700 mb-1">Mensalidade Padrão (R$)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={formConfig.valor_mensalidade_padrao || 50}
+              onChange={e => setFormConfig({ ...formConfig, valor_mensalidade_padrao: e.target.value })}
+              className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-stone-700 mb-1">Dia de Vencimento</label>
+            <input
+              type="number"
+              min={1}
+              max={31}
+              value={formConfig.dia_vencimento || 10}
+              onChange={e => setFormConfig({ ...formConfig, dia_vencimento: e.target.value })}
+              className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold text-stone-600 mb-1">Aviso Fixo / Orientações na Página Inicial (opcional)</label>
+          <textarea
+            rows={2}
+            value={formConfig.aviso_boas_vindas || ''}
+            onChange={e => setFormConfig({ ...formConfig, aviso_boas_vindas: e.target.value })}
+            placeholder="Ex: Chegar com 30 minutos de antecedência para banho de ervas e concentração..."
+            className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs"
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-4 pt-2">
+          <label className="flex items-center gap-2 text-xs font-semibold text-stone-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={formConfig.permitir_auto_cadastro !== false}
+              onChange={e => setFormConfig({ ...formConfig, permitir_auto_cadastro: e.target.checked })}
+              className="rounded text-emerald-700"
+            />
+            Permitir novos cadastros ("Primeiro Acesso") na tela de login
+          </label>
+
+          <button type="submit" className="px-6 py-2.5 bg-emerald-800 hover:bg-emerald-900 text-white font-semibold rounded-xl text-xs">
+            Salvar Configurações
+          </button>
+        </div>
+      </form>
+
+      {/* 3. CENTRAL DE LINHAS, CATEGORIAS E CARGOS */}
+      <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm space-y-4">
+        <h2 className="font-bold text-base text-stone-800 flex items-center gap-2">
+          <PlusCircle className="w-5 h-5 text-emerald-700" />
+          Criar Novas Linhas, Categorias e Cargos
+        </h2>
+
+        <form onSubmit={handleAddOpcao} className="grid grid-cols-1 sm:grid-cols-4 gap-2 bg-stone-50 p-3 rounded-xl border border-stone-200">
+          <select
+            value={tipoLista}
+            onChange={e => setTipoLista(e.target.value)}
+            className="px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white font-medium"
+          >
+            <option value="linha_curimba">Linha da Curimba</option>
+            <option value="linha_entidade">Linha de Entidade (Guias)</option>
+            <option value="categoria_biblioteca">Categoria da Biblioteca</option>
+            <option value="categoria_caixinha">Categoria da Caixinha</option>
+            <option value="cargo_casa">Cargo da Casa</option>
+          </select>
+          <input
+            type="text"
+            required
+            value={valorLista}
+            onChange={e => setValorLista(e.target.value)}
+            placeholder="Nome da nova opção..."
+            className="sm:col-span-2 px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
+          />
+          <button type="submit" className="bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-semibold rounded-xl py-2">
+            + Adicionar Opção
+          </button>
+        </form>
+
+        {listasCustom.length === 0 ? (
+          <p className="text-xs text-stone-500">Nenhuma opção personalizada criada além das padrões.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {listasCustom.map(item => (
+              <span key={item.id} className="inline-flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-950 px-3 py-1.5 rounded-xl text-xs">
+                <span className="text-[10px] font-bold uppercase text-emerald-700">{labelsTipos[item.tipo] || item.tipo}:</span>
+                <strong>{item.valor}</strong>
+                <button type="button" onClick={() => onRemoveLista(item.id)} className="text-rose-600 font-bold">×</button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 4. PAINEL RÁPIDO DE PERMISSÕES */}
+      <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm space-y-4">
+        <div>
+          <h2 className="font-bold text-base text-stone-800 flex items-center gap-2">
+            <Shield className="w-5 h-5 text-emerald-700" />
+            Painel Rápido de Permissões por Setor
+          </h2>
+          <p className="text-xs text-stone-500">Marque ou desmarque rapidamente o que cada médium pode gerenciar</p>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="border-b border-stone-200 text-stone-500">
+                <th className="py-2.5 pr-4 font-semibold">Médium</th>
+                <th className="py-2.5 px-2 font-semibold">Perfil</th>
+                {MODULOS_PERMISSAO.map(mod => (
+                  <th key={mod.id} className="py-2.5 px-2 font-semibold text-center">{mod.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-stone-100">
+              {mediums.map(m => {
+                const isTotal = m.nivel_acesso === 'admin' || m.nivel_acesso === 'secretaria';
+                return (
+                  <tr key={m.id} className="hover:bg-stone-50">
+                    <td className="py-2.5 pr-4 font-semibold text-stone-800">{m.nome}</td>
+                    <td className="py-2.5 px-2 text-stone-500 capitalize">{m.nivel_acesso || 'medium'}</td>
+                    {MODULOS_PERMISSAO.map(mod => (
+                      <td key={mod.id} className="py-2.5 px-2 text-center">
+                        <input
+                          type="checkbox"
+                          disabled={isTotal}
+                          checked={isTotal || (m.permissoes || []).includes(mod.id)}
+                          onChange={() => togglePermissaoRapida(m, mod.id)}
+                          className="rounded text-emerald-700 disabled:opacity-50"
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
