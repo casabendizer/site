@@ -3,7 +3,8 @@ import {
   Home, Users, Wine, DollarSign, BookOpen, Music, HeartHandshake, Bell,
   LogOut, Copy, ExternalLink, Calendar, Cake, Shield,
   HeartPulse, Sparkles, Trash2, Send, MessageCircle,
-  AlertCircle, CheckCircle2, Lock, Mail, Clock, RefreshCw, BookmarkPlus, Check, X
+  AlertCircle, CheckCircle2, Lock, Mail, Clock, RefreshCw, BookmarkPlus,
+  Check, X, Pencil, PlusCircle, ArrowUpDown
 } from 'lucide-react';
 import { supabase, isConfigured } from './supabaseClient';
 
@@ -12,9 +13,56 @@ const MES_NUMERO = new Date().getMonth() + 1;
 
 const MODULOS_PERMISSAO = [
   { id: 'cadastros', label: 'Gestão de Cadastros (Médiuns)' },
-  { id: 'caixinha', label: 'Gestão de Caixinha & Bebidas' },
+  { id: 'caixinha', label: 'Gestão da Caixinha (Doações)' },
+  { id: 'bebidas', label: 'Gestão de Bebidas (R$ 10)' },
   { id: 'biblioteca', label: 'Gestão da Biblioteca' },
   { id: 'curimba', label: 'Curadoria da Curimba' },
+];
+
+const LINHAS_CURIMBA_PADRAO = [
+  'Abertura / Defumação',
+  'Oxalá',
+  'Caboclos',
+  'Pretos-Velhos',
+  'Erês / Crianças',
+  'Boiadeiros',
+  'Marinheiros',
+  'Baianos',
+  'Ciganos',
+  'Mestres',
+  'Mestras',
+  'Exu',
+  'Pombagira',
+  'Encerramento'
+];
+
+const LINHAS_ENTIDADE_PADRAO = [
+  'Caboclo(a)',
+  'Preto(a)-Velho(a)',
+  'Erê / Criança',
+  'Boiadeiro',
+  'Marinheiro',
+  'Baiano(a)',
+  'Cigano(a)',
+  'Mestre',
+  'Mestra',
+  'Exu',
+  'Pombagira'
+];
+
+const CATEGORIAS_BIBLIOTECA_PADRAO = [
+  'Fundamentos',
+  'Mediunidade',
+  'Ervas & Banhos',
+  'Orixás & Linhas',
+  'História & Teologia'
+];
+
+const CATEGORIAS_CAIXINHA_PADRAO = [
+  'Manutenção & Velas',
+  'Festas & Obrigações',
+  'Obras & Reformas',
+  'Caridade & Ação Social'
 ];
 
 export default function App() {
@@ -40,6 +88,7 @@ export default function App() {
   const [pontos, setPontos] = useState([]);
   const [giras, setGiras] = useState([]);
   const [notificacoes, setNotificacoes] = useState([]);
+  const [listasCustom, setListasCustom] = useState([]);
 
   const showToast = (msg) => {
     setToast(msg);
@@ -74,16 +123,17 @@ export default function App() {
     setLoadingAuth(true);
     try {
       const [
-        resMediums, resBebidas, resFin, resCamp, resLivros, resPontos, resGiras, resNotif
+        resMediums, resBebidas, resFin, resCamp, resLivros, resPontos, resGiras, resNotif, resListas
       ] = await Promise.all([
         supabase.from('mediums').select('*').order('nome'),
         supabase.from('caixinha_bebidas').select('*').eq('mes_referencia', MES_ATUAL),
         supabase.from('financeiro').select('*').order('data_movimento', { ascending: false }),
-        supabase.from('campanhas_doacao').select('*').eq('ativa', true),
+        supabase.from('campanhas_doacao').select('*').eq('ativa', true).order('created_at', { ascending: false }),
         supabase.from('biblioteca').select('*').order('titulo'),
         supabase.from('curimba_pontos').select('*').order('created_at', { ascending: false }),
         supabase.from('calendario_giras').select('*').order('data_gira'),
         supabase.from('notificacoes').select('*').order('created_at', { ascending: false }),
+        supabase.from('configuracoes_listas').select('*').order('created_at'),
       ]);
 
       const allMediums = resMediums.data || [];
@@ -95,6 +145,7 @@ export default function App() {
       setPontos(resPontos.data || []);
       setGiras(resGiras.data || []);
       setNotificacoes(resNotif.data || []);
+      setListasCustom(resListas.data || []);
 
       let myProfile = allMediums.find(m => m.user_id === user.id || m.email === user.email);
       if (!myProfile) {
@@ -125,6 +176,26 @@ export default function App() {
     } finally {
       setLoadingAuth(false);
     }
+  };
+
+  const adicionarItemLista = async (tipo, valor) => {
+    const limpo = valor.trim();
+    if (!limpo) return;
+    const { data, error } = await supabase
+      .from('configuracoes_listas')
+      .insert([{ tipo, valor: limpo }])
+      .select()
+      .single();
+    if (!error && data) {
+      setListasCustom([...listasCustom, data]);
+      showToast(`"${limpo}" adicionado às opções!`);
+    }
+  };
+
+  const removerItemLista = async (id) => {
+    await supabase.from('configuracoes_listas').delete().eq('id', id);
+    setListasCustom(listasCustom.filter(l => l.id !== id));
+    showToast('Opção removida.');
   };
 
   const handleAuth = async (e) => {
@@ -300,7 +371,7 @@ export default function App() {
     );
   }
 
-  // Cálculo de permissões granulares
+  // Permissões separadas por setor
   const role = currentUserProfile?.nivel_acesso || 'medium';
   const perms = currentUserProfile?.permissoes || [];
   const isAdmin = role === 'admin';
@@ -308,14 +379,36 @@ export default function App() {
 
   const canCadastros = isAdmin || isSecretaria || perms.includes('cadastros');
   const canCaixinha = isAdmin || isSecretaria || perms.includes('caixinha');
+  const canBebidas = isAdmin || isSecretaria || perms.includes('bebidas');
   const canBiblioteca = isAdmin || isSecretaria || perms.includes('biblioteca');
   const canCurimba = isAdmin || isSecretaria || perms.includes('curimba');
+
+  // Listas dinâmicas combinando padrão + cadastradas pelo Admin Geral
+  const linhasCurimba = Array.from(new Set([
+    ...LINHAS_CURIMBA_PADRAO,
+    ...listasCustom.filter(l => l.tipo === 'linha_curimba').map(l => l.valor)
+  ]));
+
+  const linhasEntidade = Array.from(new Set([
+    ...LINHAS_ENTIDADE_PADRAO,
+    ...listasCustom.filter(l => l.tipo === 'linha_entidade').map(l => l.valor)
+  ]));
+
+  const categoriasBiblioteca = Array.from(new Set([
+    ...CATEGORIAS_BIBLIOTECA_PADRAO,
+    ...listasCustom.filter(l => l.tipo === 'categoria_biblioteca').map(l => l.valor)
+  ]));
+
+  const categoriasCaixinha = Array.from(new Set([
+    ...CATEGORIAS_CAIXINHA_PADRAO,
+    ...listasCustom.filter(l => l.tipo === 'categoria_caixinha').map(l => l.valor)
+  ]));
 
   const navItems = [
     { id: 'home', label: 'Início', icon: Home },
     { id: 'mediums', label: canCadastros ? 'Médiuns' : 'Minha Ficha', icon: Users },
-    ...(canCaixinha ? [{ id: 'bebidas', label: 'Bebidas (R$ 10)', icon: Wine }] : []),
-    ...(canCaixinha ? [{ id: 'financeiro', label: 'Financeiro', icon: DollarSign }] : []),
+    ...(canBebidas ? [{ id: 'bebidas', label: 'Bebidas (R$ 10)', icon: Wine }] : []),
+    ...(canCaixinha ? [{ id: 'financeiro', label: 'Livro Caixa', icon: DollarSign }] : []),
     { id: 'doacoes', label: 'Caixinha', icon: HeartHandshake },
     { id: 'curimba', label: 'Curimba', icon: Music },
     { id: 'biblioteca', label: 'Biblioteca', icon: BookOpen },
@@ -391,7 +484,7 @@ export default function App() {
             campanhas={campanhas}
             notificacoes={notificacoes}
             canCadastros={canCadastros}
-            canCaixinha={canCaixinha}
+            canBebidas={canBebidas}
             showToast={showToast}
           />
         )}
@@ -403,10 +496,14 @@ export default function App() {
             setCurrentUser={setCurrentUserProfile}
             isAdmin={isAdmin}
             canCadastros={canCadastros}
+            linhasEntidade={linhasEntidade}
+            listasCustom={listasCustom}
+            onAddLista={adicionarItemLista}
+            onRemoveLista={removerItemLista}
             showToast={showToast}
           />
         )}
-        {activeTab === 'bebidas' && canCaixinha && (
+        {activeTab === 'bebidas' && canBebidas && (
           <BebidasTab
             mediums={mediums}
             bebidas={bebidas}
@@ -432,7 +529,12 @@ export default function App() {
             financeiro={financeiro}
             setFinanceiro={setFinanceiro}
             currentUser={currentUserProfile}
+            isAdmin={isAdmin}
             canCaixinha={canCaixinha}
+            categoriasCaixinha={categoriasCaixinha}
+            listasCustom={listasCustom}
+            onAddLista={adicionarItemLista}
+            onRemoveLista={removerItemLista}
             showToast={showToast}
           />
         )}
@@ -441,7 +543,12 @@ export default function App() {
             pontos={pontos}
             setPontos={setPontos}
             currentUser={currentUserProfile}
+            isAdmin={isAdmin}
             canCurimba={canCurimba}
+            linhasCurimba={linhasCurimba}
+            listasCustom={listasCustom}
+            onAddLista={adicionarItemLista}
+            onRemoveLista={removerItemLista}
             showToast={showToast}
           />
         )}
@@ -453,7 +560,12 @@ export default function App() {
             notificacoes={notificacoes}
             setNotificacoes={setNotificacoes}
             currentUser={currentUserProfile}
+            isAdmin={isAdmin}
             canBiblioteca={canBiblioteca}
+            categoriasBiblioteca={categoriasBiblioteca}
+            listasCustom={listasCustom}
+            onAddLista={adicionarItemLista}
+            onRemoveLista={removerItemLista}
             showToast={showToast}
           />
         )}
@@ -464,7 +576,7 @@ export default function App() {
             mediums={mediums}
             bebidas={bebidas}
             canCadastros={canCadastros}
-            canCaixinha={canCaixinha}
+            canBebidas={canBebidas}
             showToast={showToast}
           />
         )}
@@ -473,8 +585,54 @@ export default function App() {
   );
 }
 
+/* ===================== COMPONENTE AUXILIAR: GERENCIAR OPÇÕES (ADMIN) ===================== */
+function AdminListaManager({ titulo, tipo, listasCustom, onAddLista, onRemoveLista }) {
+  const [novoValor, setNovoValor] = useState('');
+  const itensCustom = listasCustom.filter(l => l.tipo === tipo);
+
+  const handleAdd = (e) => {
+    e.preventDefault();
+    if (!novoValor.trim()) return;
+    onAddLista(tipo, novoValor);
+    setNovoValor('');
+  };
+
+  return (
+    <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+          <PlusCircle className="w-4 h-4 text-emerald-700" />
+          {titulo} (Admin Geral)
+        </p>
+      </div>
+      <form onSubmit={handleAdd} className="flex gap-2">
+        <input
+          type="text"
+          value={novoValor}
+          onChange={e => setNovoValor(e.target.value)}
+          placeholder="Digite o nome da nova opção..."
+          className="flex-1 px-3 py-1.5 border border-emerald-200 rounded-xl text-xs bg-white"
+        />
+        <button type="submit" className="px-3.5 py-1.5 bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-semibold rounded-xl">
+          + Criar Opção
+        </button>
+      </form>
+      {itensCustom.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 pt-1">
+          {itensCustom.map(item => (
+            <span key={item.id} className="inline-flex items-center gap-1.5 bg-white border border-emerald-200 text-emerald-900 px-2.5 py-1 rounded-lg text-[11px] font-medium">
+              {item.valor}
+              <button type="button" onClick={() => onRemoveLista(item.id)} className="text-rose-500 hover:text-rose-700 font-bold">×</button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ===================== 1. ABA INÍCIO (HOME) ===================== */
-function HomeTab({ giras, setGiras, mediums, bebidas, campanhas, notificacoes, canCadastros, canCaixinha, showToast }) {
+function HomeTab({ giras, setGiras, mediums, bebidas, campanhas, notificacoes, canCadastros, canBebidas, showToast }) {
   const [novaGira, setNovaGira] = useState({ titulo: '', data_gira: '', horario: '19:30', tipo: 'Gira de Atendimento' });
 
   const aniversariantes = mediums.filter(m => {
@@ -512,7 +670,7 @@ function HomeTab({ giras, setGiras, mediums, bebidas, campanhas, notificacoes, c
           <p className="text-xs text-stone-500 mt-1">Cadastrados na Casa Bendizer</p>
         </div>
 
-        {canCaixinha ? (
+        {canBebidas ? (
           <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
             <p className="text-xs font-semibold text-stone-500 uppercase">Caixinha Bebidas ({MES_ATUAL})</p>
             <p className="text-2xl font-bold text-amber-700 mt-1">{totalBebidasPagas} / {mediums.length} Pagos</p>
@@ -643,8 +801,11 @@ function HomeTab({ giras, setGiras, mediums, bebidas, campanhas, notificacoes, c
   );
 }
 
-/* ===================== 2. ABA MÉDIUNS (PESSOAL, SAÚDE, ESPIRITUAL & PERMISSÕES) ===================== */
-function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin, canCadastros, showToast }) {
+/* ===================== 2. ABA MÉDIUNS (PESSOAL, SAÚDE COMPLETA, ESPIRITUAL & PERMISSÕES) ===================== */
+function MediumsTab({
+  mediums, setMediums, currentUser, setCurrentUser, isAdmin, canCadastros,
+  linhasEntidade, listasCustom, onAddLista, onRemoveLista, showToast
+}) {
   const [selectedId, setSelectedId] = useState(currentUser?.id);
   const [subTab, setSubTab] = useState('pessoal');
   const [novoRito, setNovoRito] = useState('');
@@ -682,6 +843,11 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
       alergias: form.alergias,
       condicoes_medicas: form.condicoes_medicas,
       contato_emergencia: form.contato_emergencia,
+      bebe: form.bebe || 'Não',
+      fuma: form.fuma || 'Não',
+      remedio_controlado: form.remedio_controlado || '',
+      dispositivo_medico: form.dispositivo_medico || '',
+      restricoes_fisicas: form.restricoes_fisicas || '',
       ...(canEditEntidades ? { entidades: form.entidades || [] } : {}),
       ...(canCadastros ? {
         cargo: form.cargo,
@@ -718,7 +884,7 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
     if (!novaEntidade.nome.trim()) return;
     const updated = [...(form.entidades || []), novaEntidade];
     setForm({ ...form, entidades: updated });
-    setNovaEntidade({ linha: 'Caboclo(a)', nome: '' });
+    setNovaEntidade({ linha: linhasEntidade[0] || 'Caboclo(a)', nome: '' });
   };
 
   if (!form?.id) return null;
@@ -731,7 +897,7 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
             <Users className="w-4 h-4 text-emerald-700" />
             Corrente ({mediums.length})
           </h3>
-          <div className="space-y-1.5 max-h-[500px] overflow-y-auto">
+          <div className="space-y-1.5 max-h-[540px] overflow-y-auto">
             {mediums.map(m => (
               <button
                 key={m.id}
@@ -824,49 +990,113 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
                 </div>
               </div>
 
-              <div className="bg-rose-50/60 border border-rose-200/80 rounded-2xl p-4 space-y-4">
-                <h3 className="font-bold text-sm text-rose-900 flex items-center gap-2">
-                  <HeartPulse className="w-4 h-4 text-rose-600" />
-                  Ficha de Saúde & Emergência
-                </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="bg-rose-50/60 border border-rose-200/80 rounded-2xl p-5 space-y-4">
+                <div>
+                  <h3 className="font-bold text-sm text-rose-900 flex items-center gap-2">
+                    <HeartPulse className="w-4 h-4 text-rose-600" />
+                    Ficha de Saúde, Hábitos & Segurança na Gira
+                  </h3>
+                  <p className="text-[11px] text-rose-800/80 mt-0.5">
+                    Informações essenciais para cuidado com elementos (bebidas, fumo, ervas) e pronto atendimento durante os trabalhos.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-xs font-semibold text-stone-700 mb-1">Tipo Sanguíneo</label>
                     <input
                       type="text"
                       value={form.tipo_sanguineo || ''}
                       onChange={e => setForm({ ...form, tipo_sanguineo: e.target.value })}
-                      placeholder="Ex: O+, A-, etc."
+                      placeholder="Ex: O+, A-, AB+"
                       className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-stone-700 mb-1">Contato de Emergência</label>
+                    <label className="block text-xs font-semibold text-stone-700 mb-1">Consome bebida alcoólica?</label>
+                    <select
+                      value={form.bebe || 'Não'}
+                      onChange={e => setForm({ ...form, bebe: e.target.value })}
+                      className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
+                    >
+                      <option value="Não">Não consome (Restrição total)</option>
+                      <option value="Socialmente">Sim, socialmente / em trabalho</option>
+                      <option value="Restrição médica">Não pode por motivo médico / remédio</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-stone-700 mb-1">Fumante?</label>
+                    <select
+                      value={form.fuma || 'Não'}
+                      onChange={e => setForm({ ...form, fuma: e.target.value })}
+                      className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
+                    >
+                      <option value="Não">Não fuma</option>
+                      <option value="Apenas em trabalho">Apenas em trabalho espiritual</option>
+                      <option value="Sim">Sim, fumante</option>
+                      <option value="Alergia a fumaça">Sensibilidade / Alergia respiratória</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-stone-700 mb-1">Toma remédio controlado ou uso contínuo?</label>
                     <input
                       type="text"
-                      value={form.contato_emergencia || ''}
-                      onChange={e => setForm({ ...form, contato_emergencia: e.target.value })}
-                      placeholder="Nome e telefone de familiar"
+                      value={form.remedio_controlado || ''}
+                      onChange={e => setForm({ ...form, remedio_controlado: e.target.value })}
+                      placeholder="Ex: Não / Sim (nome do medicamento e horário)"
                       className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-stone-700 mb-1">Alergias (Ervas, Alimentos, Remédios)</label>
+                    <label className="block text-xs font-semibold text-stone-700 mb-1">Usa algum dispositivo médico?</label>
+                    <input
+                      type="text"
+                      value={form.dispositivo_medico || ''}
+                      onChange={e => setForm({ ...form, dispositivo_medico: e.target.value })}
+                      placeholder="Ex: Não / Marca-passo, bomba de insulina, aparelho auditivo..."
+                      className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-stone-700 mb-1">Alergias (Ervas, Alimentos, Medicamentos)</label>
                     <input
                       type="text"
                       value={form.alergias || ''}
                       onChange={e => setForm({ ...form, alergias: e.target.value })}
-                      placeholder="Ex: Alergia a arruda, dipirona..."
+                      placeholder="Ex: Arruda, dendê, dipirona, picada de inseto..."
                       className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-stone-700 mb-1">Condições Médicas / Uso de Remédios</label>
+                    <label className="block text-xs font-semibold text-stone-700 mb-1">Condições Médicas / Crônicas</label>
                     <input
                       type="text"
                       value={form.condicoes_medicas || ''}
                       onChange={e => setForm({ ...form, condicoes_medicas: e.target.value })}
-                      placeholder="Ex: Hipertensão, asma..."
+                      placeholder="Ex: Hipertensão, diabetes, asma, epilepsia..."
+                      className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-stone-700 mb-1">Restrições Físicas / Mobilidade / Gestação</label>
+                    <input
+                      type="text"
+                      value={form.restricoes_fisicas || ''}
+                      onChange={e => setForm({ ...form, restricoes_fisicas: e.target.value })}
+                      placeholder="Ex: Problema no joelho/coluna, gestante, labirintite..."
+                      className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-stone-700 mb-1">Contato de Emergência (Nome e Telefone)</label>
+                    <input
+                      type="text"
+                      value={form.contato_emergencia || ''}
+                      onChange={e => setForm({ ...form, contato_emergencia: e.target.value })}
+                      placeholder="Ex: Maria (Mãe) - (11) 98888-7777"
                       className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
                     />
                   </div>
@@ -875,7 +1105,7 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
             </>
           ) : (
             <div className="space-y-5">
-              {/* Cargo e Níveis de Acesso */}
+              {/* Cargo e Níveis de Acesso Separados */}
               <div className="bg-stone-50 p-4 rounded-xl border border-stone-200 space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
@@ -897,9 +1127,9 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
                         onChange={e => setForm({ ...form, nivel_acesso: e.target.value })}
                         className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
                       >
-                        <option value="medium">Médium (Padrão)</option>
-                        <option value="secretaria">Secretaria (Acesso a todos os setores)</option>
-                        <option value="admin">Administrador Geral (Total + Permissões)</option>
+                        <option value="medium">Médium (Com permissões marcadas abaixo)</option>
+                        <option value="secretaria">Secretaria (Acesso completo a todos os setores)</option>
+                        <option value="admin">Administrador Geral (Total + Criar Opções)</option>
                       </select>
                     </div>
                   )}
@@ -909,7 +1139,7 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
                   <div className="pt-3 border-t border-stone-200">
                     <p className="text-xs font-bold text-emerald-950 mb-2 flex items-center gap-1.5">
                       <Shield className="w-4 h-4 text-emerald-700" />
-                      Permissões Específicas deste Médium (marque os setores que ele pode gerenciar):
+                      Permissões Individuais por Setor (selecione exatamente o que este médium pode gerenciar):
                     </p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {MODULOS_PERMISSAO.map(mod => {
@@ -968,27 +1198,19 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
                 </div>
               </div>
 
-              {/* Entidades de Trabalho (Médium também pode adicionar as suas!) */}
-              <div className="border border-stone-200 rounded-xl p-4">
-                <h4 className="font-bold text-sm text-stone-800 mb-3">Entidades de Trabalho</h4>
+              {/* Entidades de Trabalho */}
+              <div className="border border-stone-200 rounded-xl p-4 space-y-3">
+                <h4 className="font-bold text-sm text-stone-800">Entidades de Trabalho</h4>
                 {canEditEntidades && (
-                  <div className="flex flex-wrap gap-2 mb-3">
+                  <div className="flex flex-wrap gap-2">
                     <select
                       value={novaEntidade.linha}
                       onChange={e => setNovaEntidade({ ...novaEntidade, linha: e.target.value })}
                       className="px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
                     >
-                      <option>Caboclo(a)</option>
-                      <option>Preto(a)-Velho(a)</option>
-                      <option>Erê / Criança</option>
-                      <option>Mestre</option>
-                      <option>Mestra</option>
-                      <option>Exu</option>
-                      <option>Pombagira</option>
-                      <option>Boiadeiro</option>
-                      <option>Marinheiro</option>
-                      <option>Baiano(a)</option>
-                      <option>Cigano(a)</option>
+                      {linhasEntidade.map(l => (
+                        <option key={l} value={l}>{l}</option>
+                      ))}
                     </select>
                     <input
                       type="text"
@@ -1016,6 +1238,16 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
                     </div>
                   ))}
                 </div>
+
+                {isAdmin && (
+                  <AdminListaManager
+                    titulo="Criar Nova Linha de Entidade"
+                    tipo="linha_entidade"
+                    listasCustom={listasCustom}
+                    onAddLista={onAddLista}
+                    onRemoveLista={onRemoveLista}
+                  />
+                )}
               </div>
             </div>
           )}
@@ -1031,7 +1263,7 @@ function MediumsTab({ mediums, setMediums, currentUser, setCurrentUser, isAdmin,
   );
 }
 
-/* ===================== 3. ABA BEBIDAS (EXCLUSIVO ADMIN / CAIXINHA) ===================== */
+/* ===================== 3. ABA BEBIDAS (PERMISSÃO INDEPENDENTE) ===================== */
 function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, currentUser, showToast }) {
   const [compraDesc, setCompraDesc] = useState('');
   const [compraValor, setCompraValor] = useState('');
@@ -1101,7 +1333,7 @@ function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, c
           <p className="text-2xl font-bold text-rose-700 mt-1">R$ {totalGasto.toFixed(2)}</p>
         </div>
         <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
-          <p className="text-xs font-semibold text-stone-500 uppercase">Saldo da Caixinha</p>
+          <p className="text-xs font-semibold text-stone-500 uppercase">Saldo das Bebidas</p>
           <p className="text-2xl font-bold text-amber-700 mt-1">R$ {(totalArrecadado - totalGasto).toFixed(2)}</p>
         </div>
       </div>
@@ -1112,7 +1344,7 @@ function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, c
             <Wine className="w-5 h-5 text-amber-600" />
             Contribuição Mensal (R$ 10,00 / Médium)
           </h2>
-          <p className="text-xs text-stone-500 mb-4">Controle restrito à Administração & Equipe Caixinha • {MES_ATUAL}</p>
+          <p className="text-xs text-stone-500 mb-4">Acesso exclusivo da Gestão de Bebidas • {MES_ATUAL}</p>
 
           <div className="space-y-2">
             {mediums.map(m => {
@@ -1187,12 +1419,13 @@ function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, c
   );
 }
 
-/* ===================== 4. ABA FINANCEIRO ===================== */
+/* ===================== 4. ABA LIVRO CAIXA (FINANCEIRO) ===================== */
 function FinanceiroTab({ financeiro, setFinanceiro, currentUser, showToast }) {
   const [form, setForm] = useState({ tipo: 'entrada', categoria: 'Mensalidade', descricao: '', valor: '' });
 
-  const entradas = financeiro.filter(f => f.tipo === 'entrada').reduce((a, b) => a + Number(b.valor), 0);
-  const saidas = financeiro.filter(f => f.tipo === 'saida').reduce((a, b) => a + Number(b.valor), 0);
+  const movsGerais = financeiro.filter(f => f.categoria !== 'Compra Bebidas');
+  const entradas = movsGerais.filter(f => f.tipo === 'entrada').reduce((a, b) => a + Number(b.valor), 0);
+  const saidas = movsGerais.filter(f => f.tipo === 'saida').reduce((a, b) => a + Number(b.valor), 0);
 
   const adicionarMovimento = async (e) => {
     e.preventDefault();
@@ -1207,6 +1440,12 @@ function FinanceiroTab({ financeiro, setFinanceiro, currentUser, showToast }) {
       setForm({ tipo: 'entrada', categoria: 'Mensalidade', descricao: '', valor: '' });
       showToast('Lançamento financeiro registrado!');
     }
+  };
+
+  const excluirMovimento = async (id) => {
+    await supabase.from('financeiro').delete().eq('id', id);
+    setFinanceiro(financeiro.filter(f => f.id !== id));
+    showToast('Lançamento excluído.');
   };
 
   return (
@@ -1268,16 +1507,21 @@ function FinanceiroTab({ financeiro, setFinanceiro, currentUser, showToast }) {
         </form>
 
         <div className="space-y-2">
-          {financeiro.map(f => (
+          {movsGerais.map(f => (
             <div key={f.id} className="flex items-center justify-between p-3 rounded-xl bg-stone-50 border border-stone-200 text-xs">
               <div>
                 <span className="font-bold text-stone-800">{f.descricao}</span>
                 <span className="ml-2 px-2 py-0.5 bg-stone-200 rounded text-[10px]">{f.categoria}</span>
-                <p className="text-stone-400 mt-0.5">{f.data_movimento}</p>
+                <p className="text-stone-400 mt-0.5">{f.data_movimento} • {f.registrado_por}</p>
               </div>
-              <span className={`font-bold ${f.tipo === 'entrada' ? 'text-emerald-700' : 'text-rose-700'}`}>
-                {f.tipo === 'entrada' ? '+' : '-'} R$ {Number(f.valor).toFixed(2)}
-              </span>
+              <div className="flex items-center gap-3">
+                <span className={`font-bold ${f.tipo === 'entrada' ? 'text-emerald-700' : 'text-rose-700'}`}>
+                  {f.tipo === 'entrada' ? '+' : '-'} R$ {Number(f.valor).toFixed(2)}
+                </span>
+                <button onClick={() => excluirMovimento(f.id)} className="text-stone-400 hover:text-rose-600" title="Excluir lançamento">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -1286,11 +1530,22 @@ function FinanceiroTab({ financeiro, setFinanceiro, currentUser, showToast }) {
   );
 }
 
-/* ===================== 5. ABA CAIXINHA DO TERREIRO (DOAÇÕES) ===================== */
-function DoacoesTab({ campanhas, setCampanhas, financeiro, setFinanceiro, currentUser, canCaixinha, showToast }) {
+/* ===================== 5. ABA CAIXINHA DO TERREIRO (EDITAR, MOVIMENTAR E EXCLUIR) ===================== */
+function DoacoesTab({
+  campanhas, setCampanhas, financeiro, setFinanceiro, currentUser,
+  isAdmin, canCaixinha, categoriasCaixinha, listasCustom, onAddLista, onRemoveLista, showToast
+}) {
   const [valorDoacao, setValorDoacao] = useState('');
   const [campanhaSelecionada, setCampanhaSelecionada] = useState('');
-  const [novaCamp, setNovaCamp] = useState({ titulo: '', descricao: '', meta: '' });
+  const [novaCamp, setNovaCamp] = useState({ titulo: '', categoria: categoriasCaixinha[0] || 'Manutenção & Velas', descricao: '', meta: '' });
+
+  // Estado para editar campanha
+  const [editandoId, setEditandoId] = useState(null);
+  const [editForm, setEditForm] = useState({ titulo: '', categoria: '', descricao: '', meta: '', arrecadado: '' });
+
+  // Estado para movimentar saldo da caixinha (+ entrada / - saída)
+  const [movCampId, setMovCampId] = useState(null);
+  const [movForm, setMovForm] = useState({ tipo: 'saida', descricao: '', valor: '' });
 
   const totalArrecadadoGeral = campanhas.reduce((acc, c) => acc + Number(c.arrecadado || 0), 0);
 
@@ -1301,6 +1556,7 @@ function DoacoesTab({ campanhas, setCampanhas, financeiro, setFinanceiro, curren
       .from('campanhas_doacao')
       .insert([{
         titulo: novaCamp.titulo,
+        categoria: novaCamp.categoria,
         descricao: novaCamp.descricao,
         meta: parseFloat(novaCamp.meta),
         arrecadado: 0,
@@ -1309,10 +1565,88 @@ function DoacoesTab({ campanhas, setCampanhas, financeiro, setFinanceiro, curren
       .select()
       .single();
     if (data) {
-      setCampanhas([...campanhas, data]);
-      setNovaCamp({ titulo: '', descricao: '', meta: '' });
-      showToast('Nova campanha da Caixinha criada!');
+      setCampanhas([data, ...campanhas]);
+      setNovaCamp({ titulo: '', categoria: categoriasCaixinha[0] || 'Manutenção & Velas', descricao: '', meta: '' });
+      showToast('Nova caixinha criada!');
     }
+  };
+
+  const abrirEdicao = (c) => {
+    setEditandoId(c.id);
+    setEditForm({
+      titulo: c.titulo,
+      categoria: c.categoria || 'Geral',
+      descricao: c.descricao || '',
+      meta: c.meta,
+      arrecadado: c.arrecadado
+    });
+  };
+
+  const salvarEdicao = async (e) => {
+    e.preventDefault();
+    const { data } = await supabase
+      .from('campanhas_doacao')
+      .update({
+        titulo: editForm.titulo,
+        categoria: editForm.categoria,
+        descricao: editForm.descricao,
+        meta: parseFloat(editForm.meta),
+        arrecadado: parseFloat(editForm.arrecadado)
+      })
+      .eq('id', editandoId)
+      .select()
+      .single();
+
+    if (data) {
+      setCampanhas(campanhas.map(c => c.id === editandoId ? data : c));
+      setEditandoId(null);
+      showToast('Caixinha atualizada com sucesso!');
+    }
+  };
+
+  const excluirCampanha = async (id) => {
+    await supabase.from('campanhas_doacao').delete().eq('id', id);
+    setCampanhas(campanhas.filter(c => c.id !== id));
+    showToast('Caixinha excluída.');
+  };
+
+  const movimentarCampanha = async (e) => {
+    e.preventDefault();
+    const camp = campanhas.find(c => c.id === movCampId);
+    const val = parseFloat(movForm.valor);
+    if (!camp || !val || val <= 0) return;
+
+    const novoSaldo = movForm.tipo === 'entrada'
+      ? Number(camp.arrecadado) + val
+      : Math.max(0, Number(camp.arrecadado) - val);
+
+    const { data: campAtualizada } = await supabase
+      .from('campanhas_doacao')
+      .update({ arrecadado: novoSaldo })
+      .eq('id', camp.id)
+      .select()
+      .single();
+
+    if (campAtualizada) {
+      setCampanhas(campanhas.map(c => c.id === camp.id ? campAtualizada : c));
+    }
+
+    const { data: fin } = await supabase
+      .from('financeiro')
+      .insert([{
+        tipo: movForm.tipo,
+        categoria: `Caixinha: ${camp.titulo}`,
+        descricao: movForm.descricao || (movForm.tipo === 'entrada' ? 'Reforço de caixa' : 'Utilização de recurso da caixinha'),
+        valor: val,
+        registrado_por: currentUser?.nome
+      }])
+      .select()
+      .single();
+
+    if (fin) setFinanceiro([fin, ...financeiro]);
+    setMovCampId(null);
+    setMovForm({ tipo: 'saida', descricao: '', valor: '' });
+    showToast('Movimentação registrada na caixinha!');
   };
 
   const registrarDoacao = async (e) => {
@@ -1353,36 +1687,47 @@ function DoacoesTab({ campanhas, setCampanhas, financeiro, setFinanceiro, curren
 
   return (
     <div className="space-y-6">
-      {/* Banner de transparência visível para todos */}
       <div className="bg-emerald-950 text-white p-6 rounded-2xl shadow-sm flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="text-xs uppercase tracking-wider text-amber-300 font-bold">Transparência • Caixinha da Casa Bendizer</p>
-          <h2 className="text-2xl font-bold mt-1">Total Arrecadado: R$ {totalArrecadadoGeral.toFixed(2)}</h2>
+          <h2 className="text-2xl font-bold mt-1">Saldo Atual nas Caixinhas: R$ {totalArrecadadoGeral.toFixed(2)}</h2>
           <p className="text-xs text-emerald-200 mt-1">Recursos destinados às velas, ervas, manutenção e trabalhos espirituais.</p>
         </div>
       </div>
+
+      {isAdmin && (
+        <AdminListaManager
+          titulo="Criar Nova Categoria de Caixinha"
+          tipo="categoria_caixinha"
+          listasCustom={listasCustom}
+          onAddLista={onAddLista}
+          onRemoveLista={onRemoveLista}
+        />
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-4">
           {canCaixinha && (
             <form onSubmit={criarCampanha} className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm space-y-3">
-              <h3 className="font-bold text-sm text-stone-800">Criar Nova Campanha / Meta (Equipe Caixinha)</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <h3 className="font-bold text-sm text-stone-800">Criar Nova Caixinha / Campanha</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
                 <input
                   type="text"
                   required
                   placeholder="Título (Ex: Festa de Preto-Velho)"
                   value={novaCamp.titulo}
                   onChange={e => setNovaCamp({ ...novaCamp, titulo: e.target.value })}
-                  className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
+                  className="sm:col-span-2 px-3 py-2 border border-stone-200 rounded-xl text-xs"
                 />
-                <input
-                  type="text"
-                  placeholder="Descrição curta"
-                  value={novaCamp.descricao}
-                  onChange={e => setNovaCamp({ ...novaCamp, descricao: e.target.value })}
-                  className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
-                />
+                <select
+                  value={novaCamp.categoria}
+                  onChange={e => setNovaCamp({ ...novaCamp, categoria: e.target.value })}
+                  className="px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
+                >
+                  {categoriasCaixinha.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
                 <input
                   type="number"
                   step="0.01"
@@ -1393,34 +1738,171 @@ function DoacoesTab({ campanhas, setCampanhas, financeiro, setFinanceiro, curren
                   className="px-3 py-2 border border-stone-200 rounded-xl text-xs"
                 />
               </div>
+              <input
+                type="text"
+                placeholder="Descrição / Finalidade desta caixinha"
+                value={novaCamp.descricao}
+                onChange={e => setNovaCamp({ ...novaCamp, descricao: e.target.value })}
+                className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs"
+              />
               <button type="submit" className="px-4 py-2 bg-emerald-800 text-white text-xs font-semibold rounded-xl">
-                + Criar Campanha
+                + Criar Caixinha
               </button>
             </form>
           )}
 
           {campanhas.map(c => {
-            const pct = Math.min(100, Math.round((Number(c.arrecadado) / Number(c.meta)) * 100));
+            const pct = Math.min(100, Math.round((Number(c.arrecadado) / Math.max(1, Number(c.meta))) * 100));
             return (
-              <div key={c.id} className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm">
-                <div className="flex justify-between items-start mb-2">
-                  <div>
-                    <h3 className="font-bold text-stone-800">{c.titulo}</h3>
-                    <p className="text-xs text-stone-500 mt-0.5">{c.descricao}</p>
-                  </div>
-                  <span className="text-xs font-bold bg-amber-100 text-amber-900 px-2.5 py-1 rounded-lg">
-                    {pct}% atingido
-                  </span>
-                </div>
+              <div key={c.id} className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm space-y-3">
+                {editandoId === c.id ? (
+                  <form onSubmit={salvarEdicao} className="space-y-3 bg-amber-50/60 p-4 rounded-xl border border-amber-200">
+                    <p className="text-xs font-bold text-amber-950">Editando Caixinha</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        required
+                        value={editForm.titulo}
+                        onChange={e => setEditForm({ ...editForm, titulo: e.target.value })}
+                        className="px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
+                      />
+                      <select
+                        value={editForm.categoria}
+                        onChange={e => setEditForm({ ...editForm, categoria: e.target.value })}
+                        className="px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
+                      >
+                        {categoriasCaixinha.map(cat => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                      </select>
+                      <div>
+                        <label className="block text-[10px] font-bold text-stone-500">Saldo Atual (R$)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          required
+                          value={editForm.arrecadado}
+                          onChange={e => setEditForm({ ...editForm, arrecadado: e.target.value })}
+                          className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-stone-500">Meta (R$)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          required
+                          value={editForm.meta}
+                          onChange={e => setEditForm({ ...editForm, meta: e.target.value })}
+                          className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
+                        />
+                      </div>
+                    </div>
+                    <input
+                      type="text"
+                      value={editForm.descricao}
+                      onChange={e => setEditForm({ ...editForm, descricao: e.target.value })}
+                      placeholder="Descrição"
+                      className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
+                    />
+                    <div className="flex gap-2">
+                      <button type="submit" className="px-4 py-1.5 bg-emerald-800 text-white text-xs font-semibold rounded-lg">
+                        Salvar Edição
+                      </button>
+                      <button type="button" onClick={() => setEditandoId(null)} className="px-3 py-1.5 bg-stone-200 text-stone-700 text-xs font-semibold rounded-lg">
+                        Cancelar
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <>
+                    <div className="flex flex-wrap justify-between items-start gap-2">
+                      <div>
+                        <span className="text-[10px] uppercase font-bold tracking-wider bg-stone-100 text-stone-600 px-2 py-0.5 rounded">
+                          {c.categoria || 'Geral'}
+                        </span>
+                        <h3 className="font-bold text-stone-800 text-base mt-1">{c.titulo}</h3>
+                        <p className="text-xs text-stone-500 mt-0.5">{c.descricao}</p>
+                      </div>
+                      <span className="text-xs font-bold bg-amber-100 text-amber-900 px-2.5 py-1 rounded-lg">
+                        {pct}% atingido
+                      </span>
+                    </div>
 
-                <div className="w-full bg-stone-100 h-3 rounded-full overflow-hidden my-3">
-                  <div className="bg-emerald-700 h-full transition-all" style={{ width: `${pct}%` }} />
-                </div>
+                    <div className="w-full bg-stone-100 h-3 rounded-full overflow-hidden">
+                      <div className="bg-emerald-700 h-full transition-all" style={{ width: `${pct}%` }} />
+                    </div>
 
-                <div className="flex justify-between text-xs font-semibold text-stone-600">
-                  <span>Arrecadado: R$ {Number(c.arrecadado).toFixed(2)}</span>
-                  <span>Meta: R$ {Number(c.meta).toFixed(2)}</span>
-                </div>
+                    <div className="flex justify-between text-xs font-semibold text-stone-600">
+                      <span>Saldo / Arrecadado: R$ {Number(c.arrecadado).toFixed(2)}</span>
+                      <span>Meta: R$ {Number(c.meta).toFixed(2)}</span>
+                    </div>
+
+                    {canCaixinha && (
+                      <div className="pt-3 border-t border-stone-100 flex flex-wrap gap-2">
+                        <button
+                          onClick={() => { setMovCampId(movCampId === c.id ? null : c.id); setMovForm({ tipo: 'saida', descricao: '', valor: '' }); }}
+                          className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 rounded-lg text-xs font-semibold flex items-center gap-1"
+                        >
+                          <ArrowUpDown className="w-3.5 h-3.5" /> Movimentar Valor
+                        </button>
+                        <button
+                          onClick={() => abrirEdicao(c)}
+                          className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-800 rounded-lg text-xs font-semibold flex items-center gap-1"
+                        >
+                          <Pencil className="w-3.5 h-3.5" /> Editar
+                        </button>
+                        <button
+                          onClick={() => excluirCampanha(c.id)}
+                          className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-xs font-semibold flex items-center gap-1 ml-auto"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" /> Excluir
+                        </button>
+                      </div>
+                    )}
+
+                    {movCampId === c.id && canCaixinha && (
+                      <form onSubmit={movimentarCampanha} className="mt-3 p-3.5 bg-stone-50 rounded-xl border border-stone-200 space-y-2">
+                        <p className="text-xs font-bold text-stone-800">Movimentar Saldo de "{c.titulo}"</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                          <select
+                            value={movForm.tipo}
+                            onChange={e => setMovForm({ ...movForm, tipo: e.target.value })}
+                            className="px-2.5 py-1.5 border border-stone-200 rounded-lg text-xs bg-white"
+                          >
+                            <option value="saida">Retirar / Usar (-)</option>
+                            <option value="entrada">Adicionar (+)</option>
+                          </select>
+                          <input
+                            type="text"
+                            required
+                            placeholder="Motivo (Ex: Compra de velas)"
+                            value={movForm.descricao}
+                            onChange={e => setMovForm({ ...movForm, descricao: e.target.value })}
+                            className="sm:col-span-2 px-2.5 py-1.5 border border-stone-200 rounded-lg text-xs bg-white"
+                          />
+                          <input
+                            type="number"
+                            step="0.01"
+                            required
+                            placeholder="Valor R$"
+                            value={movForm.valor}
+                            onChange={e => setMovForm({ ...movForm, valor: e.target.value })}
+                            className="px-2.5 py-1.5 border border-stone-200 rounded-lg text-xs bg-white"
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <button type="submit" className="px-3.5 py-1.5 bg-emerald-800 text-white text-xs font-semibold rounded-lg">
+                            Confirmar Movimentação
+                          </button>
+                          <button type="button" onClick={() => setMovCampId(null)} className="px-3 py-1.5 bg-stone-200 text-stone-700 text-xs font-semibold rounded-lg">
+                            Cancelar
+                          </button>
+                        </div>
+                      </form>
+                    )}
+                  </>
+                )}
               </div>
             );
           })}
@@ -1435,7 +1917,7 @@ function DoacoesTab({ campanhas, setCampanhas, financeiro, setFinanceiro, curren
           <form onSubmit={registrarDoacao} className="space-y-3">
             {campanhas.length > 0 && (
               <div>
-                <label className="block text-xs font-semibold text-stone-600 mb-1">Campanha</label>
+                <label className="block text-xs font-semibold text-stone-600 mb-1">Caixinha / Destino</label>
                 <select
                   value={campanhaSelecionada}
                   onChange={e => setCampanhaSelecionada(e.target.value)}
@@ -1471,8 +1953,11 @@ function DoacoesTab({ campanhas, setCampanhas, financeiro, setFinanceiro, curren
   );
 }
 
-/* ===================== 6. ABA CURIMBA (ENVIO POR MÉDIUM + ANÁLISE) ===================== */
-function CurimbaTab({ pontos, setPontos, currentUser, canCurimba, showToast }) {
+/* ===================== 6. ABA CURIMBA (LINHAS SEPARADAS + CRIAR NOVAS LINHAS) ===================== */
+function CurimbaTab({
+  pontos, setPontos, currentUser, isAdmin, canCurimba,
+  linhasCurimba, listasCustom, onAddLista, onRemoveLista, showToast
+}) {
   const [busca, setBusca] = useState('');
   const [filtroLinha, setFiltroLinha] = useState('Todas');
   const [novoPonto, setNovoPonto] = useState({
@@ -1532,7 +2017,16 @@ function CurimbaTab({ pontos, setPontos, currentUser, canCurimba, showToast }) {
 
   return (
     <div className="space-y-6">
-      {/* Fila de Análise (somente para quem tem permissão da Curimba / Admin) */}
+      {isAdmin && (
+        <AdminListaManager
+          titulo="Criar Nova Linha de Ponto na Curimba"
+          tipo="linha_curimba"
+          listasCustom={listasCustom}
+          onAddLista={onAddLista}
+          onRemoveLista={onRemoveLista}
+        />
+      )}
+
       {canCurimba && pontosPendentes.length > 0 && (
         <div className="bg-amber-50 border border-amber-300 p-5 rounded-2xl space-y-3">
           <h3 className="font-bold text-sm text-amber-950 flex items-center gap-2">
@@ -1568,7 +2062,6 @@ function CurimbaTab({ pontos, setPontos, currentUser, canCurimba, showToast }) {
         </div>
       )}
 
-      {/* Formulário aberto a TODOS os médiuns (vai para análise se não for da equipe Curimba) */}
       <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm">
         <h2 className="font-bold text-base text-stone-800 mb-1 flex items-center gap-2">
           <Music className="w-5 h-5 text-emerald-700" />
@@ -1594,15 +2087,9 @@ function CurimbaTab({ pontos, setPontos, currentUser, canCurimba, showToast }) {
               onChange={e => setNovoPonto({ ...novoPonto, linha: e.target.value })}
               className="px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
             >
-              <option>Abertura / Defumação</option>
-              <option>Oxalá</option>
-              <option>Caboclos</option>
-              <option>Pretos-Velhos</option>
-              <option>Erês / Crianças</option>
-              <option>Mestres / Mestras</option>
-              <option>Exu e Pombagira</option>
-              <option>Boiadeiros / Marinheiros</option>
-              <option>Encerramento</option>
+              {linhasCurimba.map(l => (
+                <option key={l} value={l}>{l}</option>
+              ))}
             </select>
             <input
               type="text"
@@ -1645,7 +2132,6 @@ function CurimbaTab({ pontos, setPontos, currentUser, canCurimba, showToast }) {
         </form>
       </div>
 
-      {/* Filtros */}
       <div className="flex flex-wrap gap-3">
         <input
           type="text"
@@ -1660,19 +2146,12 @@ function CurimbaTab({ pontos, setPontos, currentUser, canCurimba, showToast }) {
           className="px-4 py-2.5 bg-white border border-stone-200 rounded-xl text-xs"
         >
           <option value="Todas">Todas as Linhas</option>
-          <option>Abertura / Defumação</option>
-          <option>Oxalá</option>
-          <option>Caboclos</option>
-          <option>Pretos-Velhos</option>
-          <option>Erês / Crianças</option>
-          <option>Mestres / Mestras</option>
-          <option>Exu e Pombagira</option>
-          <option>Boiadeiros / Marinheiros</option>
-          <option>Encerramento</option>
+          {linhasCurimba.map(l => (
+            <option key={l} value={l}>{l}</option>
+          ))}
         </select>
       </div>
 
-      {/* Lista de Pontos Aprovados */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {pontosFiltrados.length === 0 ? (
           <p className="text-sm text-stone-500 col-span-2 text-center py-8">Nenhum ponto aprovado nesta linha ainda.</p>
@@ -1714,7 +2193,9 @@ function CurimbaTab({ pontos, setPontos, currentUser, canCurimba, showToast }) {
                   </a>
                 )}
                 <button
-                  onClick={() => { navigator.clipboard.writeText(`${p.titulo}\n\n${p.letra}`); showToast('Letra copiada!'); }}
+                  onClick={() => { navigator.clipboard.writeText(`${p.titulo}
+
+${p.letra}`); showToast('Letra copiada!'); }}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-stone-100 text-stone-700 rounded-lg text-xs font-semibold hover:bg-stone-200 ml-auto"
                 >
                   <Copy className="w-3.5 h-3.5" /> Copiar
@@ -1728,9 +2209,14 @@ function CurimbaTab({ pontos, setPontos, currentUser, canCurimba, showToast }) {
   );
 }
 
-/* ===================== 7. ABA BIBLIOTECA (20 DIAS, RENOVAÇÃO, RESERVA & ALERTAS) ===================== */
-function BibliotecaTab({ livros, setLivros, mediums, notificacoes, setNotificacoes, currentUser, canBiblioteca, showToast }) {
-  const [novoLivro, setNovoLivro] = useState({ titulo: '', autor: '', categoria: 'Fundamentos', unidades: 1 });
+/* ===================== 7. ABA BIBLIOTECA (CATEGORIAS PERSONALIZÁVEIS + 20 DIAS) ===================== */
+function BibliotecaTab({
+  livros, setLivros, mediums, notificacoes, setNotificacoes, currentUser,
+  isAdmin, canBiblioteca, categoriasBiblioteca, listasCustom, onAddLista, onRemoveLista, showToast
+}) {
+  const [novoLivro, setNovoLivro] = useState({
+    titulo: '', autor: '', categoria: categoriasBiblioteca[0] || 'Fundamentos', unidades: 1
+  });
 
   const adicionarDias = (dias) => {
     const d = new Date();
@@ -1754,7 +2240,7 @@ function BibliotecaTab({ livros, setLivros, mediums, notificacoes, setNotificaco
     const { data } = await supabase.from('biblioteca').insert([payload]).select().single();
     if (data) {
       setLivros([...livros, data]);
-      setNovoLivro({ titulo: '', autor: '', categoria: 'Fundamentos', unidades: 1 });
+      setNovoLivro({ titulo: '', autor: '', categoria: categoriasBiblioteca[0] || 'Fundamentos', unidades: 1 });
       showToast('Livro adicionado ao acervo da Casa Bendizer!');
     }
   };
@@ -1861,7 +2347,16 @@ function BibliotecaTab({ livros, setLivros, mediums, notificacoes, setNotificaco
 
   return (
     <div className="space-y-6">
-      {/* Alerta de livros vencidos */}
+      {isAdmin && (
+        <AdminListaManager
+          titulo="Criar Nova Categoria de Livro na Biblioteca"
+          tipo="categoria_biblioteca"
+          listasCustom={listasCustom}
+          onAddLista={onAddLista}
+          onRemoveLista={onRemoveLista}
+        />
+      )}
+
       {livrosVencidos.length > 0 && (
         <div className="bg-rose-50 border border-rose-300 p-4 rounded-2xl space-y-2">
           <h3 className="font-bold text-sm text-rose-900 flex items-center gap-2">
@@ -1889,7 +2384,6 @@ function BibliotecaTab({ livros, setLivros, mediums, notificacoes, setNotificaco
         </div>
       )}
 
-      {/* Cadastro de Livro (somente Equipe Biblioteca / Admin) */}
       {canBiblioteca && (
         <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
           <h2 className="font-bold text-base text-stone-800 mb-3">Cadastrar Livro na Biblioteca</h2>
@@ -1919,15 +2413,17 @@ function BibliotecaTab({ livros, setLivros, mediums, notificacoes, setNotificaco
                 placeholder="Qtd"
                 value={novoLivro.unidades}
                 onChange={e => setNovoLivro({ ...novoLivro, unidades: e.target.value })}
-                className="w-20 px-3 py-2 border border-stone-200 rounded-xl text-xs"
+                className="w-16 px-2.5 py-2 border border-stone-200 rounded-xl text-xs"
               />
-              <input
-                type="text"
-                placeholder="Categoria"
+              <select
                 value={novoLivro.categoria}
                 onChange={e => setNovoLivro({ ...novoLivro, categoria: e.target.value })}
-                className="flex-1 px-3 py-2 border border-stone-200 rounded-xl text-xs"
-              />
+                className="flex-1 px-2.5 py-2 border border-stone-200 rounded-xl text-xs bg-white"
+              >
+                {categoriasBiblioteca.map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
             </div>
             <button type="submit" className="bg-emerald-800 text-white text-xs font-semibold rounded-xl py-2">
               + Cadastrar Livro
@@ -1936,7 +2432,6 @@ function BibliotecaTab({ livros, setLivros, mediums, notificacoes, setNotificaco
         </div>
       )}
 
-      {/* Acervo */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {livros.length === 0 ? (
           <p className="text-sm text-stone-500 col-span-3 text-center py-8">Nenhum livro cadastrado na biblioteca ainda.</p>
@@ -2030,7 +2525,7 @@ function BibliotecaTab({ livros, setLivros, mediums, notificacoes, setNotificaco
 }
 
 /* ===================== 8. ABA AVISOS & LEMBRETES WHATSAPP ===================== */
-function MensagensTab({ notificacoes, setNotificacoes, mediums, bebidas, canCadastros, canCaixinha, showToast }) {
+function MensagensTab({ notificacoes, setNotificacoes, mediums, bebidas, canCadastros, canBebidas, showToast }) {
   const [titulo, setTitulo] = useState('');
   const [mensagem, setMensagem] = useState('');
 
@@ -2059,7 +2554,7 @@ function MensagensTab({ notificacoes, setNotificacoes, mediums, bebidas, canCada
   };
 
   const pendentesBebida = mediums.filter(m => !bebidas.some(b => b.medium_id === m.id && b.pago));
-  const canPost = canCadastros || canCaixinha;
+  const canPost = canCadastros || canBebidas;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -2093,7 +2588,7 @@ function MensagensTab({ notificacoes, setNotificacoes, mediums, bebidas, canCada
             </form>
           </div>
 
-          {canCaixinha && (
+          {canBebidas && (
             <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm">
               <h2 className="font-bold text-base text-stone-800 mb-2 flex items-center gap-2">
                 <MessageCircle className="w-5 h-5 text-green-600" />
