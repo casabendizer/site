@@ -3041,26 +3041,38 @@ function ConfiguracoesTab({
     });
   }, [configCasa, currentUser?.email]);
 
-  // Monta o Boletim Mensal (Giras do mês + Aniversariantes do mês)
-  const girasDoMes = giras.filter(g => (g.data_gira || '').startsWith(MES_ATUAL));
-  const aniversariantesDoMes = mediums.filter(m => {
-    if (!m.data_nascimento) return false;
-    return parseInt(m.data_nascimento.split('-')[1], 10) === MES_NUMERO;
-  });
+  const gerarTextoBoletimPadrao = (nomeCasa) => {
+    const girasDoMes = giras.filter(g => (g.data_gira || '').startsWith(MES_ATUAL));
+    const aniversariantesDoMes = mediums.filter(m => {
+      if (!m.data_nascimento) return false;
+      return parseInt(m.data_nascimento.split('-')[1], 10) === MES_NUMERO;
+    });
 
-  const textoGiras = girasDoMes.length > 0
-    ? girasDoMes.map(g => `• Dia ${g.data_gira.split('-')[2]}/${g.data_gira.split('-')[1]} às ${g.horario} — ${g.titulo}`).join('\n')
-    : '• Nenhuma gira cadastrada no calendário para este mês ainda.';
+    const textoGiras = girasDoMes.length > 0
+      ? girasDoMes.map(g => `• Dia ${g.data_gira.split('-')[2]}/${g.data_gira.split('-')[1]} às ${g.horario} — ${g.titulo}`).join('\n')
+      : '• Nenhuma gira cadastrada no calendário para este mês ainda.';
 
-  const textoAniversariantes = aniversariantesDoMes.length > 0
-    ? aniversariantesDoMes.map(a => `• Dia ${a.data_nascimento.split('-')[2]}/${a.data_nascimento.split('-')[1]} — ${a.nome}`).join('\n')
-    : '• Nenhum aniversariante cadastrado neste mês.';
+    const textoAniversariantes = aniversariantesDoMes.length > 0
+      ? aniversariantesDoMes.map(a => `• Dia ${a.data_nascimento.split('-')[2]}/${a.data_nascimento.split('-')[1]} — ${a.nome}`).join('\n')
+      : '• Nenhum aniversariante cadastrado neste mês.';
 
-  const assuntoBoletim = `Calendário de Giras & Aniversariantes — ${formConfig.nome_casa || 'Casa Bendizer'} (${NOME_MES_ATUAL})`;
-  const corpoBoletim = `Axé a todos da ${formConfig.nome_casa || 'Casa Bendizer'}!\n\nSegue o nosso informativo mensal de ${NOME_MES_ATUAL}:\n\n📅 CALENDÁRIO DE GIRAS DO MÊS:\n${textoGiras}\n\n🎂 ANIVERSARIANTES DO MÊS:\n${textoAniversariantes}\n\nQue Oxalá abençoe a caminhada de todos!`;
+    return `Axé a todos da ${nomeCasa || 'Casa Bendizer'}!\n\nSegue o nosso informativo mensal de ${NOME_MES_ATUAL}:\n\n📅 CALENDÁRIO DE GIRAS DO MÊS:\n${textoGiras}\n\n🎂 ANIVERSARIANTES DO MÊS:\n${textoAniversariantes}\n\nQue Oxalá abençoe a caminhada de todos!`;
+  };
+
+  const [assuntoBoletim, setAssuntoBoletim] = useState(
+    `Calendário de Giras & Aniversariantes — ${configCasa.nome_casa || 'Casa Bendizer'} (${NOME_MES_ATUAL})`
+  );
+  const [corpoBoletim, setCorpoBoletim] = useState(() => gerarTextoBoletimPadrao(configCasa.nome_casa));
+
+  // Estado para Comunicado Livre por E-mail a todos
+  const [assuntoLivre, setAssuntoLivre] = useState('');
+  const [corpoLivre, setCorpoLivre] = useState('');
+  const [incluirAfastados, setIncluirAfastados] = useState(false);
 
   const emailsDestinatarios = Array.from(new Set([
-    ...mediums.filter(m => (m.status_medium || 'Ativo') === 'Ativo' && m.email).map(m => m.email),
+    ...mediums
+      .filter(m => (incluirAfastados ? true : (m.status_medium || 'Ativo') === 'Ativo') && m.email)
+      .map(m => m.email),
     ...(formConfig.email_admin_boletim ? [formConfig.email_admin_boletim] : [])
   ]));
 
@@ -3071,6 +3083,15 @@ function ConfiguracoesTab({
 
     // Registra que o boletim do mês atual já foi enviado
     await salvarConfigCasa({ ...formConfig, ultimo_boletim_enviado: MES_ATUAL });
+  };
+
+  const dispararComunicadoLivreEmail = (e) => {
+    e.preventDefault();
+    if (!assuntoLivre.trim() || !corpoLivre.trim()) return;
+    const bcc = emailsDestinatarios.join(',');
+    const mailto = `mailto:${encodeURIComponent(formConfig.email_admin_boletim || '')}?bcc=${encodeURIComponent(bcc)}&subject=${encodeURIComponent(assuntoLivre)}&body=${encodeURIComponent(corpoLivre)}`;
+    window.open(mailto, '_blank');
+    showToast('Abrindo seu e-mail com todos os destinatários preenchidos!');
   };
 
   const handleSalvarGeral = async (e) => {
@@ -3171,10 +3192,108 @@ function ConfiguracoesTab({
           </div>
         </div>
 
-        <div className="bg-stone-50 border border-stone-200 rounded-xl p-4">
-          <p className="text-[11px] font-bold text-stone-500 uppercase mb-1.5">Pré-visualização do E-mail ({NOME_MES_ATUAL}):</p>
-          <pre className="whitespace-pre-wrap font-sans text-xs text-stone-700 leading-relaxed">{corpoBoletim}</pre>
+        <div className="bg-stone-50 border border-stone-200 rounded-xl p-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[11px] font-bold text-stone-600 uppercase">Editar Assunto e Mensagem do Boletim ({NOME_MES_ATUAL}):</p>
+            <button
+              type="button"
+              onClick={() => {
+                setAssuntoBoletim(`Calendário de Giras & Aniversariantes — ${formConfig.nome_casa || 'Casa Bendizer'} (${NOME_MES_ATUAL})`);
+                setCorpoBoletim(gerarTextoBoletimPadrao(formConfig.nome_casa));
+                showToast('Texto padrão do mês restaurado!');
+              }}
+              className="text-[11px] font-semibold text-emerald-800 hover:underline flex items-center gap-1"
+            >
+              <RefreshCw className="w-3 h-3" /> Restaurar Padrão do Mês
+            </button>
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-stone-600 mb-1">Assunto do E-mail</label>
+            <input
+              type="text"
+              value={assuntoBoletim}
+              onChange={e => setAssuntoBoletim(e.target.value)}
+              className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white font-medium"
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-stone-600 mb-1">Texto da Mensagem (livre para editar antes de enviar)</label>
+            <textarea
+              rows={7}
+              value={corpoBoletim}
+              onChange={e => setCorpoBoletim(e.target.value)}
+              className="w-full px-3 py-2.5 border border-stone-200 rounded-xl text-xs bg-white leading-relaxed"
+            />
+          </div>
         </div>
+      </div>
+
+      {/* 1B. ENVIAR MENSAGEM / COMUNICADO LIVRE POR E-MAIL A TODOS */}
+      <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="font-bold text-base text-stone-800 flex items-center gap-2">
+              <Send className="w-5 h-5 text-emerald-700" />
+              Enviar Comunicado Livre por E-mail a Todos
+            </h2>
+            <p className="text-xs text-stone-500 mt-0.5">
+              Escreva qualquer recado, convocação ou aviso extraordinário para disparar por e-mail para toda a corrente ({emailsDestinatarios.length} destinatário(s)).
+            </p>
+          </div>
+          <label className="flex items-center gap-2 text-xs font-medium text-stone-600 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={incluirAfastados}
+              onChange={e => setIncluirAfastados(e.target.checked)}
+              className="rounded text-emerald-700"
+            />
+            Incluir afastados/suspensos
+          </label>
+        </div>
+
+        <form onSubmit={dispararComunicadoLivreEmail} className="space-y-3">
+          <div>
+            <label className="block text-xs font-semibold text-stone-600 mb-1">Assunto do E-mail</label>
+            <input
+              type="text"
+              required
+              value={assuntoLivre}
+              onChange={e => setAssuntoLivre(e.target.value)}
+              placeholder="Ex: Convocação para mutirão de limpeza / Aviso importante da gira"
+              className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-stone-600 mb-1">Mensagem para a Corrente</label>
+            <textarea
+              rows={4}
+              required
+              value={corpoLivre}
+              onChange={e => setCorpoLivre(e.target.value)}
+              placeholder="Escreva aqui o comunicado completo que será enviado por e-mail a todos..."
+              className="w-full px-3 py-2.5 border border-stone-200 rounded-xl text-xs leading-relaxed"
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="submit"
+              className="py-2.5 px-5 bg-emerald-800 hover:bg-emerald-900 text-white font-semibold rounded-xl text-xs flex items-center gap-1.5"
+            >
+              <Mail className="w-3.5 h-3.5" /> Enviar E-mail para Todos ({emailsDestinatarios.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!corpoLivre.trim()) return;
+                navigator.clipboard.writeText(`${assuntoLivre ? `*${assuntoLivre}*\n\n` : ''}${corpoLivre}`);
+                showToast('Mensagem copiada para colar no WhatsApp!');
+              }}
+              className="py-2.5 px-4 bg-stone-100 hover:bg-stone-200 text-stone-800 font-semibold rounded-xl text-xs flex items-center gap-1.5"
+            >
+              <Copy className="w-3.5 h-3.5" /> Copiar para WhatsApp
+            </button>
+          </div>
+        </form>
       </div>
 
       {/* 2. DADOS DA CASA, PIX & PARÂMETROS */}
