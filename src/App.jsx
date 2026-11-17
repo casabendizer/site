@@ -4,7 +4,7 @@ import {
   LogOut, Copy, ExternalLink, Calendar, Cake, Shield,
   HeartPulse, Sparkles, Trash2, Send, MessageCircle,
   AlertCircle, CheckCircle2, Lock, Mail, Clock, RefreshCw, BookmarkPlus,
-  Check, X, Pencil, PlusCircle, ArrowUpDown
+  Check, X, Pencil, PlusCircle, ArrowUpDown, Link2
 } from 'lucide-react';
 import { supabase, isConfigured } from './supabaseClient';
 
@@ -29,6 +29,7 @@ const LINHAS_CURIMBA_PADRAO = [
   'Marinheiros',
   'Baianos',
   'Ciganos',
+  'Malandros',
   'Mestres',
   'Mestras',
   'Exu',
@@ -44,6 +45,7 @@ const LINHAS_ENTIDADE_PADRAO = [
   'Marinheiro',
   'Baiano(a)',
   'Cigano(a)',
+  'Malandro(a)',
   'Mestre',
   'Mestra',
   'Exu',
@@ -89,6 +91,7 @@ export default function App() {
   const [giras, setGiras] = useState([]);
   const [notificacoes, setNotificacoes] = useState([]);
   const [listasCustom, setListasCustom] = useState([]);
+  const [linksImportantes, setLinksImportantes] = useState([]);
 
   const showToast = (msg) => {
     setToast(msg);
@@ -123,17 +126,18 @@ export default function App() {
     setLoadingAuth(true);
     try {
       const [
-        resMediums, resBebidas, resFin, resCamp, resLivros, resPontos, resGiras, resNotif, resListas
+        resMediums, resBebidas, resFin, resCamp, resLivros, resPontos, resGiras, resNotif, resListas, resLinks
       ] = await Promise.all([
         supabase.from('mediums').select('*').order('nome'),
         supabase.from('caixinha_bebidas').select('*').eq('mes_referencia', MES_ATUAL),
         supabase.from('financeiro').select('*').order('data_movimento', { ascending: false }),
-        supabase.from('campanhas_doacao').select('*').eq('ativa', true).order('created_at', { ascending: false }),
+        supabase.from('campanhas_doacao').select('*').eq('ativa', true),
         supabase.from('biblioteca').select('*').order('titulo'),
         supabase.from('curimba_pontos').select('*').order('created_at', { ascending: false }),
         supabase.from('calendario_giras').select('*').order('data_gira'),
         supabase.from('notificacoes').select('*').order('created_at', { ascending: false }),
         supabase.from('configuracoes_listas').select('*').order('created_at'),
+        supabase.from('links_importantes').select('*').order('created_at'),
       ]);
 
       const allMediums = resMediums.data || [];
@@ -146,6 +150,7 @@ export default function App() {
       setGiras(resGiras.data || []);
       setNotificacoes(resNotif.data || []);
       setListasCustom(resListas.data || []);
+      setLinksImportantes(resLinks.data || []);
 
       let myProfile = allMediums.find(m => m.user_id === user.id || m.email === user.email);
       if (!myProfile) {
@@ -158,6 +163,7 @@ export default function App() {
           data_nascimento: user.user_metadata?.data_nascimento || null,
           cargo: isFirstUser ? 'Administração Geral' : 'Médium de Corrente',
           nivel_acesso: isFirstUser ? 'admin' : 'medium',
+          status_medium: 'Ativo',
           permissoes: [],
           ritos: [],
           entidades: []
@@ -408,7 +414,7 @@ export default function App() {
     { id: 'home', label: 'Início', icon: Home },
     { id: 'mediums', label: canCadastros ? 'Médiuns' : 'Minha Ficha', icon: Users },
     ...(canBebidas ? [{ id: 'bebidas', label: 'Bebidas (R$ 10)', icon: Wine }] : []),
-    ...(canCaixinha ? [{ id: 'financeiro', label: 'Livro Caixa', icon: DollarSign }] : []),
+    ...(canCaixinha ? [{ id: 'financeiro', label: 'Financeiro', icon: DollarSign }] : []),
     { id: 'doacoes', label: 'Caixinha', icon: HeartHandshake },
     { id: 'curimba', label: 'Curimba', icon: Music },
     { id: 'biblioteca', label: 'Biblioteca', icon: BookOpen },
@@ -483,8 +489,11 @@ export default function App() {
             bebidas={bebidas}
             campanhas={campanhas}
             notificacoes={notificacoes}
+            linksImportantes={linksImportantes}
+            setLinksImportantes={setLinksImportantes}
             canCadastros={canCadastros}
             canBebidas={canBebidas}
+            setActiveTab={setActiveTab}
             showToast={showToast}
           />
         )}
@@ -516,6 +525,7 @@ export default function App() {
         )}
         {activeTab === 'financeiro' && canCaixinha && (
           <FinanceiroTab
+            mediums={mediums}
             financeiro={financeiro}
             setFinanceiro={setFinanceiro}
             currentUser={currentUserProfile}
@@ -632,8 +642,12 @@ function AdminListaManager({ titulo, tipo, listasCustom, onAddLista, onRemoveLis
 }
 
 /* ===================== 1. ABA INÍCIO (HOME) ===================== */
-function HomeTab({ giras, setGiras, mediums, bebidas, campanhas, notificacoes, canCadastros, canBebidas, showToast }) {
+function HomeTab({
+  giras, setGiras, mediums, bebidas, campanhas, notificacoes,
+  linksImportantes, setLinksImportantes, canCadastros, canBebidas, setActiveTab, showToast
+}) {
   const [novaGira, setNovaGira] = useState({ titulo: '', data_gira: '', horario: '19:30', tipo: 'Gira de Atendimento' });
+  const [novoLink, setNovoLink] = useState({ titulo: '', url: '', descricao: '' });
 
   const aniversariantes = mediums.filter(m => {
     if (!m.data_nascimento) return false;
@@ -641,6 +655,7 @@ function HomeTab({ giras, setGiras, mediums, bebidas, campanhas, notificacoes, c
     return mes === MES_NUMERO;
   });
 
+  const mediumsAtivos = mediums.filter(m => (m.status_medium || 'Ativo') === 'Ativo');
   const totalBebidasPagas = bebidas.filter(b => b.pago).length;
   const totalCaixinha = campanhas.reduce((acc, c) => acc + Number(c.arrecadado || 0), 0);
 
@@ -661,34 +676,173 @@ function HomeTab({ giras, setGiras, mediums, bebidas, campanhas, notificacoes, c
     showToast('Evento removido.');
   };
 
+  const adicionarLink = async (e) => {
+    e.preventDefault();
+    if (!novoLink.titulo || !novoLink.url) return;
+    const urlFormatada = novoLink.url.startsWith('http') ? novoLink.url : `https://${novoLink.url}`;
+    const { data, error } = await supabase
+      .from('links_importantes')
+      .insert([{ titulo: novoLink.titulo, url: urlFormatada, descricao: novoLink.descricao }])
+      .select()
+      .single();
+    if (!error && data) {
+      setLinksImportantes([...linksImportantes, data]);
+      setNovoLink({ titulo: '', url: '', descricao: '' });
+      showToast('Link importante adicionado!');
+    } else if (error) {
+      showToast('Erro ao salvar link. Rode o SQL atualizado no Supabase.');
+    }
+  };
+
+  const removerLink = async (id) => {
+    await supabase.from('links_importantes').delete().eq('id', id);
+    setLinksImportantes(linksImportantes.filter(l => l.id !== id));
+    showToast('Link removido.');
+  };
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
           <p className="text-xs font-semibold text-stone-500 uppercase">Corrente Ativa</p>
-          <p className="text-2xl font-bold text-emerald-900 mt-1">{mediums.length} Médiuns</p>
-          <p className="text-xs text-stone-500 mt-1">Cadastrados na Casa Bendizer</p>
+          <p className="text-2xl font-bold text-emerald-900 mt-1">{mediumsAtivos.length} Médiuns</p>
+          <p className="text-xs text-stone-500 mt-1">Total cadastrados: {mediums.length}</p>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
+          <p className="text-xs font-semibold text-stone-500 uppercase">Caixinha (Transparência)</p>
+          <p className="text-2xl font-bold text-amber-700 mt-1">R$ {totalCaixinha.toFixed(2)}</p>
+          <p className="text-xs text-stone-500 mt-1">{campanhas.length} caixinha(s) ativa(s)</p>
         </div>
 
         {canBebidas ? (
           <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
-            <p className="text-xs font-semibold text-stone-500 uppercase">Caixinha Bebidas ({MES_ATUAL})</p>
-            <p className="text-2xl font-bold text-amber-700 mt-1">{totalBebidasPagas} / {mediums.length} Pagos</p>
+            <p className="text-xs font-semibold text-stone-500 uppercase">Bebidas ({MES_ATUAL})</p>
+            <p className="text-2xl font-bold text-stone-800 mt-1">{totalBebidasPagas} / {mediumsAtivos.length} Pagos</p>
             <p className="text-xs text-stone-500 mt-1">Arrecadado: R$ {(totalBebidasPagas * 10).toFixed(2)}</p>
           </div>
         ) : (
           <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
-            <p className="text-xs font-semibold text-stone-500 uppercase">Caixinha do Terreiro</p>
-            <p className="text-2xl font-bold text-amber-700 mt-1">R$ {totalCaixinha.toFixed(2)}</p>
-            <p className="text-xs text-stone-500 mt-1">Total arrecadado nas campanhas</p>
+            <p className="text-xs font-semibold text-stone-500 uppercase">Próximos Trabalhos</p>
+            <p className="text-2xl font-bold text-stone-800 mt-1">{giras.length} Agendados</p>
+            <p className="text-xs text-stone-500 mt-1">Confira as datas abaixo</p>
           </div>
         )}
+      </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
-          <p className="text-xs font-semibold text-stone-500 uppercase">Próximos Trabalhos</p>
-          <p className="text-2xl font-bold text-stone-800 mt-1">{giras.length} Agendados</p>
-          <p className="text-xs text-stone-500 mt-1">Confira as datas abaixo</p>
+      {/* Transparência da Caixinha na Página Inicial */}
+      <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-6">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <div>
+            <h2 className="font-bold text-base text-stone-800 flex items-center gap-2">
+              <HeartHandshake className="w-5 h-5 text-amber-600" />
+              Transparência • Caixinha da Casa Bendizer
+            </h2>
+            <p className="text-xs text-stone-500">Acompanhe o saldo e o andamento das arrecadações da nossa casa</p>
+          </div>
+          <button
+            onClick={() => setActiveTab('doacoes')}
+            className="px-3.5 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-950 font-semibold rounded-xl text-xs transition"
+          >
+            Ver Caixinhas / Contribuir
+          </button>
         </div>
+
+        {campanhas.length === 0 ? (
+          <p className="text-xs text-stone-500">Nenhuma caixinha ativa cadastrada no momento.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {campanhas.map(c => {
+              const pct = Math.min(100, Math.round((Number(c.arrecadado) / Math.max(1, Number(c.meta))) * 100));
+              return (
+                <div key={c.id} className="p-4 rounded-xl bg-stone-50 border border-stone-200 space-y-2">
+                  <div className="flex justify-between items-start gap-2">
+                    <h3 className="font-bold text-sm text-stone-800">{c.titulo}</h3>
+                    <span className="text-[11px] font-bold bg-amber-100 text-amber-900 px-2 py-0.5 rounded">
+                      {pct}%
+                    </span>
+                  </div>
+                  <div className="w-full bg-stone-200 h-2 rounded-full overflow-hidden">
+                    <div className="bg-emerald-700 h-full" style={{ width: `${pct}%` }} />
+                  </div>
+                  <div className="flex justify-between text-[11px] font-semibold text-stone-600">
+                    <span>Atual: R$ {Number(c.arrecadado).toFixed(2)}</span>
+                    <span>Meta: R$ {Number(c.meta).toFixed(2)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Links Importantes na Página Inicial */}
+      <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-6">
+        <h2 className="font-bold text-base text-stone-800 flex items-center gap-2 mb-3">
+          <Link2 className="w-5 h-5 text-emerald-700" />
+          Links Importantes
+        </h2>
+
+        {canCadastros && (
+          <form onSubmit={adicionarLink} className="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-4 bg-stone-50 p-3 rounded-xl border border-stone-200">
+            <input
+              type="text"
+              required
+              placeholder="Título (Ex: Grupo WhatsApp, Drive)"
+              value={novoLink.titulo}
+              onChange={e => setNovoLink({ ...novoLink, titulo: e.target.value })}
+              className="px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white"
+            />
+            <input
+              type="text"
+              required
+              placeholder="Link / URL (https://...)"
+              value={novoLink.url}
+              onChange={e => setNovoLink({ ...novoLink, url: e.target.value })}
+              className="px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white"
+            />
+            <input
+              type="text"
+              placeholder="Descrição curta (opcional)"
+              value={novoLink.descricao}
+              onChange={e => setNovoLink({ ...novoLink, descricao: e.target.value })}
+              className="px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white"
+            />
+            <button type="submit" className="bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-semibold rounded-lg px-3 py-2">
+              + Adicionar Link
+            </button>
+          </form>
+        )}
+
+        {linksImportantes.length === 0 ? (
+          <p className="text-xs text-stone-500">Nenhum link importante cadastrado ainda.</p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {linksImportantes.map(link => (
+              <div key={link.id} className="flex items-center justify-between p-3.5 rounded-xl bg-emerald-50/60 border border-emerald-200/80">
+                <a
+                  href={link.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex-1 min-w-0 pr-2 group"
+                >
+                  <p className="font-bold text-sm text-emerald-950 group-hover:underline flex items-center gap-1.5 truncate">
+                    <ExternalLink className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                    {link.titulo}
+                  </p>
+                  {link.descricao && (
+                    <p className="text-xs text-stone-600 mt-0.5 truncate">{link.descricao}</p>
+                  )}
+                </a>
+                {canCadastros && (
+                  <button onClick={() => removerLink(link.id)} className="text-stone-400 hover:text-rose-600 p-1" title="Remover link">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -801,7 +955,7 @@ function HomeTab({ giras, setGiras, mediums, bebidas, campanhas, notificacoes, c
   );
 }
 
-/* ===================== 2. ABA MÉDIUNS (PESSOAL, SAÚDE COMPLETA, ESPIRITUAL & PERMISSÕES) ===================== */
+/* ===================== 2. ABA MÉDIUNS (EDITAR, STATUS ATIVO/AFASTADO/SUSPENSO, EXCLUIR) ===================== */
 function MediumsTab({
   mediums, setMediums, currentUser, setCurrentUser, isAdmin, canCadastros,
   linhasEntidade, listasCustom, onAddLista, onRemoveLista, showToast
@@ -851,6 +1005,7 @@ function MediumsTab({
       ...(canEditEntidades ? { entidades: form.entidades || [] } : {}),
       ...(canCadastros ? {
         cargo: form.cargo,
+        status_medium: form.status_medium || 'Ativo',
         ritos: form.ritos || [],
       } : {}),
       ...(isAdmin ? {
@@ -870,6 +1025,26 @@ function MediumsTab({
       setMediums(mediums.map(m => m.id === data.id ? data : m));
       if (data.id === currentUser?.id) setCurrentUser(data);
       showToast('Cadastro atualizado com sucesso!');
+    } else if (error) {
+      showToast('Erro ao salvar: ' + error.message);
+    }
+  };
+
+  const excluirMedium = async (mediumToDelete) => {
+    if (mediumToDelete.id === currentUser?.id) {
+      showToast('Você não pode excluir o seu próprio cadastro logado.');
+      return;
+    }
+    if (!window.confirm(`Tem certeza que deseja excluir o cadastro de "${mediumToDelete.nome}"?`)) return;
+
+    const { error } = await supabase.from('mediums').delete().eq('id', mediumToDelete.id);
+    if (!error) {
+      const restantes = mediums.filter(m => m.id !== mediumToDelete.id);
+      setMediums(restantes);
+      setSelectedId(currentUser?.id);
+      showToast('Cadastro excluído com sucesso.');
+    } else {
+      showToast('Não foi possível excluir: ' + error.message);
     }
   };
 
@@ -887,6 +1062,13 @@ function MediumsTab({
     setNovaEntidade({ linha: linhasEntidade[0] || 'Caboclo(a)', nome: '' });
   };
 
+  const badgeStatus = (st) => {
+    const status = st || 'Ativo';
+    if (status === 'Ativo') return 'bg-emerald-100 text-emerald-800';
+    if (status === 'Afastado') return 'bg-amber-100 text-amber-800';
+    return 'bg-rose-100 text-rose-800';
+  };
+
   if (!form?.id) return null;
 
   return (
@@ -898,22 +1080,30 @@ function MediumsTab({
             Corrente ({mediums.length})
           </h3>
           <div className="space-y-1.5 max-h-[540px] overflow-y-auto">
-            {mediums.map(m => (
-              <button
-                key={m.id}
-                onClick={() => setSelectedId(m.id)}
-                className={`w-full text-left px-3 py-2.5 rounded-xl text-xs transition ${
-                  form.id === m.id
-                    ? 'bg-emerald-900 text-white font-semibold'
-                    : 'hover:bg-stone-100 text-stone-700'
-                }`}
-              >
-                <p className="truncate">{m.nome}</p>
-                <p className={`text-[11px] ${form.id === m.id ? 'text-amber-300' : 'text-stone-400'}`}>
-                  {m.cargo}
-                </p>
-              </button>
-            ))}
+            {mediums.map(m => {
+              const st = m.status_medium || 'Ativo';
+              return (
+                <button
+                  key={m.id}
+                  onClick={() => setSelectedId(m.id)}
+                  className={`w-full text-left px-3 py-2.5 rounded-xl text-xs transition ${
+                    form.id === m.id
+                      ? 'bg-emerald-900 text-white font-semibold'
+                      : 'hover:bg-stone-100 text-stone-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-1">
+                    <p className="truncate">{m.nome}</p>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${form.id === m.id ? 'bg-white/20 text-amber-200' : badgeStatus(st)}`}>
+                      {st}
+                    </span>
+                  </div>
+                  <p className={`text-[11px] mt-0.5 ${form.id === m.id ? 'text-amber-300' : 'text-stone-400'}`}>
+                    {m.cargo}
+                  </p>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
@@ -921,8 +1111,13 @@ function MediumsTab({
       <div className={`${canCadastros ? 'lg:col-span-3' : 'lg:col-span-4'} bg-white rounded-2xl border border-stone-200 p-6 shadow-sm`}>
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-stone-200 pb-4 mb-5">
           <div>
-            <h2 className="text-xl font-bold text-stone-800">{form.nome}</h2>
-            <p className="text-xs text-stone-500">{form.email} • {form.cargo}</p>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-bold text-stone-800">{form.nome}</h2>
+              <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${badgeStatus(form.status_medium)}`}>
+                {form.status_medium || 'Ativo'}
+              </span>
+            </div>
+            <p className="text-xs text-stone-500 mt-0.5">{form.email} • {form.cargo}</p>
           </div>
 
           <div className="flex bg-stone-100 p-1 rounded-xl">
@@ -988,6 +1183,21 @@ function MediumsTab({
                     className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm"
                   />
                 </div>
+
+                {canCadastros && (
+                  <div>
+                    <label className="block text-xs font-semibold text-stone-600 mb-1">Situação na Corrente</label>
+                    <select
+                      value={form.status_medium || 'Ativo'}
+                      onChange={e => setForm({ ...form, status_medium: e.target.value })}
+                      className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
+                    >
+                      <option value="Ativo">Ativo</option>
+                      <option value="Afastado">Afastado</option>
+                      <option value="Suspenso">Suspenso</option>
+                    </select>
+                  </div>
+                )}
               </div>
 
               <div className="bg-rose-50/60 border border-rose-200/80 rounded-2xl p-5 space-y-4">
@@ -1105,9 +1315,9 @@ function MediumsTab({
             </>
           ) : (
             <div className="space-y-5">
-              {/* Cargo e Níveis de Acesso Separados */}
+              {/* Cargo, Status e Níveis de Acesso Separados */}
               <div className="bg-stone-50 p-4 rounded-xl border border-stone-200 space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-xs font-semibold text-stone-600 mb-1">Cargo na Casa Bendizer</label>
                     <input
@@ -1115,10 +1325,24 @@ function MediumsTab({
                       disabled={!canCadastros}
                       value={form.cargo || ''}
                       onChange={e => setForm({ ...form, cargo: e.target.value })}
-                      placeholder="Ex: Médium de Corrente, Cambono, Ogã, Mãe Pequena"
+                      placeholder="Ex: Médium de Corrente, Cambono, Ogã"
                       className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white disabled:bg-stone-100"
                     />
                   </div>
+                  {canCadastros && (
+                    <div>
+                      <label className="block text-xs font-semibold text-stone-600 mb-1">Situação na Corrente</label>
+                      <select
+                        value={form.status_medium || 'Ativo'}
+                        onChange={e => setForm({ ...form, status_medium: e.target.value })}
+                        className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
+                      >
+                        <option value="Ativo">Ativo</option>
+                        <option value="Afastado">Afastado</option>
+                        <option value="Suspenso">Suspenso</option>
+                      </select>
+                    </div>
+                  )}
                   {isAdmin && (
                     <div>
                       <label className="block text-xs font-semibold text-stone-600 mb-1">Perfil Principal no Sistema</label>
@@ -1127,9 +1351,9 @@ function MediumsTab({
                         onChange={e => setForm({ ...form, nivel_acesso: e.target.value })}
                         className="w-full px-3 py-2 border border-stone-200 rounded-xl text-sm bg-white"
                       >
-                        <option value="medium">Médium (Com permissões marcadas abaixo)</option>
-                        <option value="secretaria">Secretaria (Acesso completo a todos os setores)</option>
-                        <option value="admin">Administrador Geral (Total + Criar Opções)</option>
+                        <option value="medium">Médium (Com permissões abaixo)</option>
+                        <option value="secretaria">Secretaria (Acesso completo)</option>
+                        <option value="admin">Administrador Geral (Total)</option>
                       </select>
                     </div>
                   )}
@@ -1252,7 +1476,17 @@ function MediumsTab({
             </div>
           )}
 
-          <div className="flex justify-end">
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+            {canCadastros && !isOwnProfile ? (
+              <button
+                type="button"
+                onClick={() => excluirMedium(form)}
+                className="px-4 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold rounded-xl text-xs flex items-center gap-1.5 transition"
+              >
+                <Trash2 className="w-4 h-4" /> Excluir Cadastro do Médium
+              </button>
+            ) : <div />}
+
             <button type="submit" className="px-6 py-2.5 bg-emerald-800 hover:bg-emerald-900 text-white font-semibold rounded-xl text-sm transition">
               Salvar Alterações
             </button>
@@ -1419,13 +1653,45 @@ function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, c
   );
 }
 
-/* ===================== 4. ABA LIVRO CAIXA (FINANCEIRO) ===================== */
-function FinanceiroTab({ financeiro, setFinanceiro, currentUser, showToast }) {
+/* ===================== 4. ABA FINANCEIRO (COM LISTA DE MENSALIDADES DOS MÉDIUNS) ===================== */
+function FinanceiroTab({ mediums, financeiro, setFinanceiro, currentUser, showToast }) {
   const [form, setForm] = useState({ tipo: 'entrada', categoria: 'Mensalidade', descricao: '', valor: '' });
+  const [valorMensalidadePadrao, setValorMensalidadePadrao] = useState('50.00');
 
   const movsGerais = financeiro.filter(f => f.categoria !== 'Compra Bebidas');
   const entradas = movsGerais.filter(f => f.tipo === 'entrada').reduce((a, b) => a + Number(b.valor), 0);
   const saidas = movsGerais.filter(f => f.tipo === 'saida').reduce((a, b) => a + Number(b.valor), 0);
+
+  // Verifica quem já tem mensalidade lançada no mês atual
+  const mensalidadesMes = movsGerais.filter(
+    f => f.categoria === 'Mensalidade' && (f.data_movimento || '').startsWith(MES_ATUAL)
+  );
+
+  const toggleMensalidadeMedium = async (m) => {
+    const registroExistente = mensalidadesMes.find(item => item.descricao === `Mensalidade (${MES_ATUAL}) - ${m.nome}`);
+    if (registroExistente) {
+      await supabase.from('financeiro').delete().eq('id', registroExistente.id);
+      setFinanceiro(financeiro.filter(f => f.id !== registroExistente.id));
+      showToast(`Mensalidade de ${m.nome} marcada como pendente.`);
+    } else {
+      const val = parseFloat(valorMensalidadePadrao) || 50;
+      const { data } = await supabase
+        .from('financeiro')
+        .insert([{
+          tipo: 'entrada',
+          categoria: 'Mensalidade',
+          descricao: `Mensalidade (${MES_ATUAL}) - ${m.nome}`,
+          valor: val,
+          registrado_por: currentUser?.nome
+        }])
+        .select()
+        .single();
+      if (data) {
+        setFinanceiro([data, ...financeiro]);
+        showToast(`Mensalidade de ${m.nome} (R$ ${val.toFixed(2)}) registrada!`);
+      }
+    }
+  };
 
   const adicionarMovimento = async (e) => {
     e.preventDefault();
@@ -1460,13 +1726,59 @@ function FinanceiroTab({ financeiro, setFinanceiro, currentUser, showToast }) {
           <p className="text-2xl font-bold text-rose-700 mt-1">R$ {saidas.toFixed(2)}</p>
         </div>
         <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
-          <p className="text-xs font-semibold text-stone-500 uppercase">Saldo em Caixa</p>
+          <p className="text-xs font-semibold text-stone-500 uppercase">Saldo Financeiro</p>
           <p className="text-2xl font-bold text-stone-800 mt-1">R$ {(entradas - saidas).toFixed(2)}</p>
         </div>
       </div>
 
+      {/* Lista de Mensalidades dos Médiuns */}
       <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm">
-        <h2 className="font-bold text-base text-stone-800 mb-4">Livro Caixa da Casa Bendizer</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <h2 className="font-bold text-base text-stone-800">Controle de Mensalidades ({MES_ATUAL})</h2>
+            <p className="text-xs text-stone-500">Clique no botão ao lado de cada médium para confirmar o pagamento da mensalidade</p>
+          </div>
+          <div className="flex items-center gap-2 bg-stone-50 px-3 py-1.5 rounded-xl border border-stone-200">
+            <span className="text-xs font-semibold text-stone-600">Valor padrão (R$):</span>
+            <input
+              type="number"
+              step="0.01"
+              value={valorMensalidadePadrao}
+              onChange={e => setValorMensalidadePadrao(e.target.value)}
+              className="w-20 px-2 py-1 text-xs border border-stone-200 rounded-lg bg-white font-bold"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+          {mediums.map(m => {
+            const pagoReg = mensalidadesMes.find(item => item.descricao === `Mensalidade (${MES_ATUAL}) - ${m.nome}`);
+            const pago = Boolean(pagoReg);
+            return (
+              <div key={m.id} className="flex items-center justify-between p-3 rounded-xl bg-stone-50 border border-stone-200">
+                <div className="min-w-0 pr-2">
+                  <p className="text-xs font-bold text-stone-800 truncate">{m.nome}</p>
+                  <p className="text-[11px] text-stone-500 truncate">{m.status_medium || 'Ativo'} • {m.cargo}</p>
+                </div>
+                <button
+                  onClick={() => toggleMensalidadeMedium(m)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition cursor-pointer hover:opacity-80 ${
+                    pago
+                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                      : 'bg-amber-100 text-amber-800 border border-amber-300'
+                  }`}
+                >
+                  {pago ? `✓ Pago (R$ ${Number(pagoReg.valor).toFixed(0)})` : 'Pendente'}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Movimentações Gerais */}
+      <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm">
+        <h2 className="font-bold text-base text-stone-800 mb-4">Movimentação Financeira Geral</h2>
         <form onSubmit={adicionarMovimento} className="grid grid-cols-1 sm:grid-cols-5 gap-2 mb-5 bg-stone-50 p-3 rounded-xl border border-stone-200">
           <select
             value={form.tipo}
@@ -1478,7 +1790,7 @@ function FinanceiroTab({ financeiro, setFinanceiro, currentUser, showToast }) {
           </select>
           <input
             type="text"
-            placeholder="Categoria (Ex: Luz, Velas, Mensalidade)"
+            placeholder="Categoria (Ex: Luz, Velas, Aluguel)"
             value={form.categoria}
             onChange={e => setForm({ ...form, categoria: e.target.value })}
             className="px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white"
@@ -1530,7 +1842,7 @@ function FinanceiroTab({ financeiro, setFinanceiro, currentUser, showToast }) {
   );
 }
 
-/* ===================== 5. ABA CAIXINHA DO TERREIRO (EDITAR, MOVIMENTAR E EXCLUIR) ===================== */
+/* ===================== 5. ABA CAIXINHA DO TERREIRO (SALVAMENTO GARANTIDO, EDITAR, MOVIMENTAR E EXCLUIR) ===================== */
 function DoacoesTab({
   campanhas, setCampanhas, financeiro, setFinanceiro, currentUser,
   isAdmin, canCaixinha, categoriasCaixinha, listasCustom, onAddLista, onRemoveLista, showToast
@@ -1539,11 +1851,9 @@ function DoacoesTab({
   const [campanhaSelecionada, setCampanhaSelecionada] = useState('');
   const [novaCamp, setNovaCamp] = useState({ titulo: '', categoria: categoriasCaixinha[0] || 'Manutenção & Velas', descricao: '', meta: '' });
 
-  // Estado para editar campanha
   const [editandoId, setEditandoId] = useState(null);
   const [editForm, setEditForm] = useState({ titulo: '', categoria: '', descricao: '', meta: '', arrecadado: '' });
 
-  // Estado para movimentar saldo da caixinha (+ entrada / - saída)
   const [movCampId, setMovCampId] = useState(null);
   const [movForm, setMovForm] = useState({ tipo: 'saida', descricao: '', valor: '' });
 
@@ -1552,22 +1862,39 @@ function DoacoesTab({
   const criarCampanha = async (e) => {
     e.preventDefault();
     if (!novaCamp.titulo || !novaCamp.meta) return;
-    const { data } = await supabase
-      .from('campanhas_doacao')
-      .insert([{
-        titulo: novaCamp.titulo,
-        categoria: novaCamp.categoria,
-        descricao: novaCamp.descricao,
-        meta: parseFloat(novaCamp.meta),
-        arrecadado: 0,
-        ativa: true
-      }])
-      .select()
-      .single();
-    if (data) {
-      setCampanhas([data, ...campanhas]);
+
+    const payloadComCategoria = {
+      titulo: novaCamp.titulo,
+      categoria: novaCamp.categoria,
+      descricao: novaCamp.descricao,
+      meta: parseFloat(novaCamp.meta),
+      arrecadado: 0,
+      ativa: true
+    };
+
+    let res = await supabase.from('campanhas_doacao').insert([payloadComCategoria]).select().single();
+
+    // Fallback caso a coluna categoria ainda não tenha sido criada no banco
+    if (res.error) {
+      res = await supabase
+        .from('campanhas_doacao')
+        .insert([{
+          titulo: novaCamp.titulo,
+          descricao: novaCamp.descricao,
+          meta: parseFloat(novaCamp.meta),
+          arrecadado: 0,
+          ativa: true
+        }])
+        .select()
+        .single();
+    }
+
+    if (!res.error && res.data) {
+      setCampanhas([res.data, ...campanhas]);
       setNovaCamp({ titulo: '', categoria: categoriasCaixinha[0] || 'Manutenção & Velas', descricao: '', meta: '' });
-      showToast('Nova caixinha criada!');
+      showToast('Nova caixinha salva com sucesso!');
+    } else {
+      showToast('Erro ao criar caixinha: ' + (res.error?.message || 'verifique o banco.'));
     }
   };
 
@@ -1584,7 +1911,7 @@ function DoacoesTab({
 
   const salvarEdicao = async (e) => {
     e.preventDefault();
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('campanhas_doacao')
       .update({
         titulo: editForm.titulo,
@@ -1597,10 +1924,12 @@ function DoacoesTab({
       .select()
       .single();
 
-    if (data) {
+    if (!error && data) {
       setCampanhas(campanhas.map(c => c.id === editandoId ? data : c));
       setEditandoId(null);
       showToast('Caixinha atualizada com sucesso!');
+    } else if (error) {
+      showToast('Erro ao editar: ' + error.message);
     }
   };
 
@@ -1636,7 +1965,7 @@ function DoacoesTab({
       .insert([{
         tipo: movForm.tipo,
         categoria: `Caixinha: ${camp.titulo}`,
-        descricao: movForm.descricao || (movForm.tipo === 'entrada' ? 'Reforço de caixa' : 'Utilização de recurso da caixinha'),
+        descricao: movForm.descricao || (movForm.tipo === 'entrada' ? 'Reforço na caixinha' : 'Uso de recurso da caixinha'),
         valor: val,
         registrado_por: currentUser?.nome
       }])
@@ -1953,7 +2282,7 @@ function DoacoesTab({
   );
 }
 
-/* ===================== 6. ABA CURIMBA (LINHAS SEPARADAS + CRIAR NOVAS LINHAS) ===================== */
+/* ===================== 6. ABA CURIMBA (COM MALANDROS + LINHAS PERSONALIZÁVEIS) ===================== */
 function CurimbaTab({
   pontos, setPontos, currentUser, isAdmin, canCurimba,
   linhasCurimba, listasCustom, onAddLista, onRemoveLista, showToast
@@ -2193,9 +2522,7 @@ function CurimbaTab({
                   </a>
                 )}
                 <button
-                  onClick={() => { navigator.clipboard.writeText(`${p.titulo}
-
-${p.letra}`); showToast('Letra copiada!'); }}
+                  onClick={() => { navigator.clipboard.writeText(`${p.titulo}\n\n${p.letra}`); showToast('Letra copiada!'); }}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-stone-100 text-stone-700 rounded-lg text-xs font-semibold hover:bg-stone-200 ml-auto"
                 >
                   <Copy className="w-3.5 h-3.5" /> Copiar
@@ -2209,7 +2536,7 @@ ${p.letra}`); showToast('Letra copiada!'); }}
   );
 }
 
-/* ===================== 7. ABA BIBLIOTECA (CATEGORIAS PERSONALIZÁVEIS + 20 DIAS) ===================== */
+/* ===================== 7. ABA BIBLIOTECA ===================== */
 function BibliotecaTab({
   livros, setLivros, mediums, notificacoes, setNotificacoes, currentUser,
   isAdmin, canBiblioteca, categoriasBiblioteca, listasCustom, onAddLista, onRemoveLista, showToast
