@@ -4,14 +4,32 @@ import {
   LogOut, Copy, ExternalLink, Calendar, Cake, Shield,
   HeartPulse, Sparkles, Trash2, Send, MessageCircle,
   AlertCircle, CheckCircle2, Lock, Mail, Clock, RefreshCw, BookmarkPlus,
-  Check, X, Pencil, PlusCircle, ArrowUpDown, Link2, Settings, Info
+  Check, X, Pencil, PlusCircle, ArrowUpDown, Link2, Settings, Info,
+  ChevronLeft, ChevronRight, Repeat
 } from 'lucide-react';
 import { supabase, isConfigured } from './supabaseClient';
 
 const MES_ATUAL = new Date().toISOString().slice(0, 7);
 const MES_NUMERO = new Date().getMonth() + 1;
 const DIA_HOJE = new Date().getDate();
+const HOJE_STR = new Date().toISOString().slice(0, 10);
 const NOME_MES_ATUAL = new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+
+const MESES_NOMES = [
+  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+];
+
+function deslocarMesStr(ym, delta) {
+  const [y, m] = ym.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function formatarMesAno(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  return `${MESES_NOMES[m - 1]} de ${y}`;
+}
 
 const MODULOS_PERMISSAO = [
   { id: 'cadastros', label: 'Cadastros' },
@@ -69,6 +87,22 @@ const CATEGORIAS_CAIXINHA_PADRAO = [
   'Caridade & Ação Social'
 ];
 
+const CATEGORIAS_FINANCEIRO_PADRAO = [
+  'Mensalidade',
+  'Água',
+  'Luz / Energia',
+  'Internet / Telefone',
+  'Aluguel',
+  'Impostos / Taxas',
+  'Itens de Limpeza',
+  'Itens de Higiene',
+  'Insumos para o Terreiro (Velas, Ervas, Pemba)',
+  'Manutenção & Reformas',
+  'Festas & Eventos',
+  'Doação',
+  'Outros'
+];
+
 const CARGOS_PADRAO = [
   'Médium de Corrente',
   'Cambono(a)',
@@ -87,6 +121,7 @@ const CONFIG_DEFAULT = {
   chave_pix: '',
   favorecido_pix: '',
   valor_mensalidade_padrao: 50,
+  valor_bebidas_padrao: 10,
   dia_vencimento: 10,
   prazo_biblioteca_dias: 20,
   permitir_auto_cadastro: true,
@@ -113,6 +148,8 @@ export default function App() {
   const [bebidas, setBebidas] = useState([]);
   const [financeiro, setFinanceiro] = useState([]);
   const [campanhas, setCampanhas] = useState([]);
+  const [doacoesPendentes, setDoacoesPendentes] = useState([]);
+  const [despesasFixas, setDespesasFixas] = useState([]);
   const [livros, setLivros] = useState([]);
   const [pontos, setPontos] = useState([]);
   const [giras, setGiras] = useState([]);
@@ -132,7 +169,6 @@ export default function App() {
       return;
     }
 
-    // Carrega configuração pública básica (para saber se auto-cadastro está ativo na tela de login)
     supabase.from('configuracoes_casa').select('*').eq('id', 1).maybeSingle().then(({ data }) => {
       if (data) setConfigCasa({ ...CONFIG_DEFAULT, ...data });
     });
@@ -159,12 +195,15 @@ export default function App() {
     setLoadingAuth(true);
     try {
       const [
-        resMediums, resBebidas, resFin, resCamp, resLivros, resPontos, resGiras, resNotif, resListas, resLinks, resConfig
+        resMediums, resBebidas, resFin, resCamp, resDoacoesPend, resDespFixas,
+        resLivros, resPontos, resGiras, resNotif, resListas, resLinks, resConfig
       ] = await Promise.all([
         supabase.from('mediums').select('*').order('nome'),
-        supabase.from('caixinha_bebidas').select('*').eq('mes_referencia', MES_ATUAL),
+        supabase.from('caixinha_bebidas').select('*'),
         supabase.from('financeiro').select('*').order('data_movimento', { ascending: false }),
         supabase.from('campanhas_doacao').select('*').eq('ativa', true),
+        supabase.from('doacoes_pendentes').select('*').order('created_at', { ascending: false }),
+        supabase.from('despesas_fixas').select('*').order('dia_vencimento'),
         supabase.from('biblioteca').select('*').order('titulo'),
         supabase.from('curimba_pontos').select('*').order('created_at', { ascending: false }),
         supabase.from('calendario_giras').select('*').order('data_gira'),
@@ -179,6 +218,8 @@ export default function App() {
       setBebidas(resBebidas.data || []);
       setFinanceiro(resFin.data || []);
       setCampanhas(resCamp.data || []);
+      setDoacoesPendentes(resDoacoesPend.data || []);
+      setDespesasFixas(resDespFixas.data || []);
       setLivros(resLivros.data || []);
       setPontos(resPontos.data || []);
       setGiras(resGiras.data || []);
@@ -435,7 +476,6 @@ export default function App() {
     );
   }
 
-  // Permissões separadas por setor
   const role = currentUserProfile?.nivel_acesso || 'medium';
   const perms = currentUserProfile?.permissoes || [];
   const isAdmin = role === 'admin';
@@ -447,7 +487,6 @@ export default function App() {
   const canBiblioteca = isAdmin || isSecretaria || perms.includes('biblioteca');
   const canCurimba = isAdmin || isSecretaria || perms.includes('curimba');
 
-  // Listas dinâmicas combinando padrão + cadastradas nas Configurações
   const linhasCurimba = Array.from(new Set([
     ...LINHAS_CURIMBA_PADRAO,
     ...listasCustom.filter(l => l.tipo === 'linha_curimba').map(l => l.valor)
@@ -473,14 +512,38 @@ export default function App() {
     ...listasCustom.filter(l => l.tipo === 'cargo_casa').map(l => l.valor)
   ]));
 
+  // Cálculos consolidados de saldos (Principal, Bebidas acumulado, Caixinhas)
+  const valorBebidaUnitario = Number(configCasa.valor_bebidas_padrao || 10);
+  const totalArrecadadoBebidasGeral = bebidas
+    .filter(b => b.pago)
+    .reduce((acc, b) => acc + Number(b.valor || valorBebidaUnitario), 0);
+  const totalGastoBebidasGeral = financeiro
+    .filter(f => f.categoria === 'Compra Bebidas' && (f.status_lancamento || 'efetivado') === 'efetivado')
+    .reduce((acc, f) => acc + Number(f.valor || 0), 0);
+  const saldoAcumuladoBebidas = totalArrecadadoBebidasGeral - totalGastoBebidasGeral;
+
+  const saldoTotalCaixinhas = campanhas.reduce((acc, c) => acc + Number(c.arrecadado || 0), 0);
+
+  const movsFinanceiroEfetivados = financeiro.filter(
+    f => f.categoria !== 'Compra Bebidas' && (f.status_lancamento || 'efetivado') === 'efetivado'
+  );
+  const entradasPrincipal = movsFinanceiroEfetivados
+    .filter(f => f.tipo === 'entrada')
+    .reduce((a, b) => a + Number(b.valor || 0), 0);
+  const saidasPrincipal = movsFinanceiroEfetivados
+    .filter(f => f.tipo === 'saida')
+    .reduce((a, b) => a + Number(b.valor || 0), 0);
+  const saldoPrincipal = entradasPrincipal - saidasPrincipal;
+
   const boletimPendenteMes = isAdmin && configCasa.ultimo_boletim_enviado !== MES_ATUAL;
+  const doacoesAguardandoCount = doacoesPendentes.filter(d => d.status === 'pendente').length;
 
   const navItems = [
     { id: 'home', label: 'Início', icon: Home },
     { id: 'mediums', label: canCadastros ? 'Médiuns' : 'Minha Ficha', icon: Users },
-    ...(canBebidas ? [{ id: 'bebidas', label: 'Bebidas (R$ 10)', icon: Wine }] : []),
+    ...(canBebidas ? [{ id: 'bebidas', label: 'Bebidas', icon: Wine }] : []),
     ...(canCaixinha ? [{ id: 'financeiro', label: 'Financeiro', icon: DollarSign }] : []),
-    { id: 'doacoes', label: 'Caixinha', icon: HeartHandshake },
+    { id: 'doacoes', label: 'Caixinha', icon: HeartHandshake, badge: canCaixinha && doacoesAguardandoCount > 0 },
     { id: 'curimba', label: 'Curimba', icon: Music },
     { id: 'biblioteca', label: 'Biblioteca', icon: BookOpen },
     { id: 'mensagens', label: 'Avisos', icon: Bell },
@@ -540,7 +603,7 @@ export default function App() {
                   <Icon className="w-4 h-4" />
                   {item.label}
                   {item.badge && (
-                    <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" title="Boletim mensal pendente" />
+                    <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
                   )}
                 </button>
               );
@@ -556,6 +619,7 @@ export default function App() {
             setGiras={setGiras}
             mediums={mediums}
             bebidas={bebidas}
+            saldoAcumuladoBebidas={saldoAcumuladoBebidas}
             campanhas={campanhas}
             notificacoes={notificacoes}
             linksImportantes={linksImportantes}
@@ -590,6 +654,7 @@ export default function App() {
             setFinanceiro={setFinanceiro}
             currentUser={currentUserProfile}
             configCasa={configCasa}
+            saldoAcumuladoTotal={saldoAcumuladoBebidas}
             showToast={showToast}
           />
         )}
@@ -598,8 +663,15 @@ export default function App() {
             mediums={mediums}
             financeiro={financeiro}
             setFinanceiro={setFinanceiro}
+            despesasFixas={despesasFixas}
+            setDespesasFixas={setDespesasFixas}
+            saldoPrincipal={saldoPrincipal}
+            saldoAcumuladoBebidas={saldoAcumuladoBebidas}
+            saldoTotalCaixinhas={saldoTotalCaixinhas}
+            campanhas={campanhas}
             currentUser={currentUserProfile}
             configCasa={configCasa}
+            setActiveTab={setActiveTab}
             showToast={showToast}
           />
         )}
@@ -607,6 +679,8 @@ export default function App() {
           <DoacoesTab
             campanhas={campanhas}
             setCampanhas={setCampanhas}
+            doacoesPendentes={doacoesPendentes}
+            setDoacoesPendentes={setDoacoesPendentes}
             financeiro={financeiro}
             setFinanceiro={setFinanceiro}
             currentUser={currentUserProfile}
@@ -646,6 +720,7 @@ export default function App() {
             setNotificacoes={setNotificacoes}
             mediums={mediums}
             bebidas={bebidas}
+            configCasa={configCasa}
             canCadastros={canCadastros}
             canBebidas={canBebidas}
             showToast={showToast}
@@ -695,7 +770,7 @@ function PixBanner({ configCasa, showToast }) {
 
 /* ===================== 1. ABA INÍCIO (HOME) ===================== */
 function HomeTab({
-  giras, setGiras, mediums, bebidas, campanhas, notificacoes,
+  giras, setGiras, mediums, bebidas, saldoAcumuladoBebidas, campanhas, notificacoes,
   linksImportantes, setLinksImportantes, configCasa, isAdmin, canCadastros, canBebidas, setActiveTab, showToast
 }) {
   const [novaGira, setNovaGira] = useState({
@@ -703,14 +778,32 @@ function HomeTab({
   });
   const [novoLink, setNovoLink] = useState({ titulo: '', url: '', descricao: '' });
 
-  const aniversariantes = mediums.filter(m => {
-    if (!m.data_nascimento) return false;
-    const mes = parseInt(m.data_nascimento.split('-')[1], 10);
-    return mes === MES_NUMERO;
-  });
+  // Navegação mensal independente para Aniversariantes e Calendário
+  const [mesAniversario, setMesAniversario] = useState(MES_NUMERO);
+  const [mesCalendario, setMesCalendario] = useState(MES_ATUAL);
+  const [verTodasGiras, setVerTodasGiras] = useState(false);
+
+  const avancarMesAniversario = (delta) => {
+    let novo = mesAniversario + delta;
+    if (novo < 1) novo = 12;
+    if (novo > 12) novo = 1;
+    setMesAniversario(novo);
+  };
+
+  const aniversariantes = mediums
+    .filter(m => {
+      if (!m.data_nascimento) return false;
+      const mes = parseInt(m.data_nascimento.split('-')[1], 10);
+      return mes === mesAniversario;
+    })
+    .sort((a, b) => a.data_nascimento.split('-')[2].localeCompare(b.data_nascimento.split('-')[2]));
+
+  const girasExibidas = verTodasGiras
+    ? giras
+    : giras.filter(g => (g.data_gira || '').startsWith(mesCalendario));
 
   const mediumsAtivos = mediums.filter(m => (m.status_medium || 'Ativo') === 'Ativo');
-  const totalBebidasPagas = bebidas.filter(b => b.pago).length;
+  const totalBebidasPagasMes = bebidas.filter(b => b.mes_referencia === MES_ATUAL && b.pago).length;
   const totalCaixinha = campanhas.reduce((acc, c) => acc + Number(c.arrecadado || 0), 0);
   const boletimPendente = isAdmin && configCasa.ultimo_boletim_enviado !== MES_ATUAL;
 
@@ -720,6 +813,7 @@ function HomeTab({
     const { data, error } = await supabase.from('calendario_giras').insert([novaGira]).select().single();
     if (!error && data) {
       setGiras([...giras, data].sort((a, b) => a.data_gira.localeCompare(b.data_gira)));
+      setMesCalendario(data.data_gira.slice(0, 7));
       setNovaGira({ titulo: '', data_gira: '', horario: configCasa.horario_gira_padrao || '19:30', tipo: 'Gira de Atendimento' });
       showToast('Gira adicionada ao calendário!');
     }
@@ -755,7 +849,6 @@ function HomeTab({
 
   return (
     <div className="space-y-6">
-      {/* Lembrete automático para o Admin enviar o boletim mensal */}
       {boletimPendente && (
         <div className="bg-amber-50 border border-amber-300 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
@@ -778,7 +871,6 @@ function HomeTab({
         </div>
       )}
 
-      {/* Aviso / Boas-vindas configurado pelo Admin */}
       {configCasa.aviso_boas_vindas && (
         <div className="bg-emerald-900 text-white p-4 rounded-2xl shadow-sm flex items-start gap-3">
           <Info className="w-5 h-5 text-amber-300 shrink-0 mt-0.5" />
@@ -805,14 +897,14 @@ function HomeTab({
         {canBebidas ? (
           <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
             <p className="text-xs font-semibold text-stone-500 uppercase">Bebidas ({MES_ATUAL})</p>
-            <p className="text-2xl font-bold text-stone-800 mt-1">{totalBebidasPagas} / {mediumsAtivos.length} Pagos</p>
-            <p className="text-xs text-stone-500 mt-1">Arrecadado: R$ {(totalBebidasPagas * 10).toFixed(2)}</p>
+            <p className="text-2xl font-bold text-stone-800 mt-1">{totalBebidasPagasMes} / {mediumsAtivos.length} Pagos</p>
+            <p className="text-xs text-stone-500 mt-1">Saldo acumulado: R$ {saldoAcumuladoBebidas.toFixed(2)}</p>
           </div>
         ) : (
           <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
-            <p className="text-xs font-semibold text-stone-500 uppercase">Próximos Trabalhos</p>
-            <p className="text-2xl font-bold text-stone-800 mt-1">{giras.length} Agendados</p>
-            <p className="text-xs text-stone-500 mt-1">Confira as datas abaixo</p>
+            <p className="text-xs font-semibold text-stone-500 uppercase">Giras no Calendário</p>
+            <p className="text-2xl font-bold text-stone-800 mt-1">{giras.length} Agendadas</p>
+            <p className="text-xs text-stone-500 mt-1">Navegue pelos meses abaixo</p>
           </div>
         )}
       </div>
@@ -932,13 +1024,52 @@ function HomeTab({
         )}
       </div>
 
+      {/* Calendário com Navegação Mensal + Aniversariantes com Navegação Mensal */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 bg-white rounded-2xl border border-stone-200 shadow-sm p-6">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
             <h2 className="font-bold text-lg text-stone-800 flex items-center gap-2">
               <Calendar className="w-5 h-5 text-emerald-700" />
               Calendário de Giras & Eventos
             </h2>
+
+            <div className="flex items-center gap-1.5">
+              {!verTodasGiras && (
+                <div className="flex items-center gap-1 bg-stone-100 p-1 rounded-xl border border-stone-200">
+                  <button
+                    type="button"
+                    onClick={() => setMesCalendario(deslocarMesStr(mesCalendario, -1))}
+                    className="p-1.5 hover:bg-white rounded-lg text-stone-700 transition"
+                    title="Mês anterior"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <span className="px-2 text-xs font-bold text-stone-800 min-w-[125px] text-center">
+                    {formatarMesAno(mesCalendario)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setMesCalendario(deslocarMesStr(mesCalendario, 1))}
+                    className="p-1.5 hover:bg-white rounded-lg text-stone-700 transition"
+                    title="Próximo mês"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setVerTodasGiras(!verTodasGiras)}
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition ${
+                  verTodasGiras
+                    ? 'bg-emerald-900 text-white border-emerald-900'
+                    : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50'
+                }`}
+              >
+                {verTodasGiras ? 'Filtrar por Mês' : 'Ver Todas'}
+              </button>
+            </div>
           </div>
 
           {canCadastros && (
@@ -964,11 +1095,15 @@ function HomeTab({
             </form>
           )}
 
-          {giras.length === 0 ? (
-            <p className="text-sm text-stone-500 py-6 text-center">Nenhuma gira cadastrada no calendário ainda.</p>
+          {girasExibidas.length === 0 ? (
+            <p className="text-sm text-stone-500 py-8 text-center">
+              {verTodasGiras
+                ? 'Nenhuma gira cadastrada no calendário ainda.'
+                : `Nenhuma gira agendada para ${formatarMesAno(mesCalendario)}. Use as setas acima para navegar entre os meses.`}
+            </p>
           ) : (
             <div className="space-y-3">
-              {giras.map(g => (
+              {girasExibidas.map(g => (
                 <div key={g.id} className="flex items-center justify-between p-3.5 rounded-xl bg-stone-50 border border-stone-200/80">
                   <div className="flex items-center gap-3.5">
                     <div className="bg-emerald-900 text-white rounded-xl px-3 py-2 text-center min-w-[56px]">
@@ -981,7 +1116,9 @@ function HomeTab({
                     </div>
                     <div>
                       <h3 className="font-bold text-stone-800 text-sm">{g.titulo}</h3>
-                      <p className="text-xs text-stone-500">Horário: {g.horario} • {g.tipo}</p>
+                      <p className="text-xs text-stone-500">
+                        {g.data_gira.split('-').reverse().join('/')} • Horário: {g.horario} • {g.tipo}
+                      </p>
                     </div>
                   </div>
                   {canCadastros && (
@@ -997,19 +1134,43 @@ function HomeTab({
 
         <div className="space-y-6">
           <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-6">
-            <h2 className="font-bold text-base text-stone-800 flex items-center gap-2 mb-4">
-              <Cake className="w-5 h-5 text-amber-600" />
-              Aniversariantes do Mês
-            </h2>
+            <div className="flex items-center justify-between gap-2 mb-4">
+              <h2 className="font-bold text-base text-stone-800 flex items-center gap-1.5">
+                <Cake className="w-5 h-5 text-amber-600 shrink-0" />
+                Aniversariantes
+              </h2>
+              <div className="flex items-center gap-1 bg-stone-100 p-1 rounded-xl border border-stone-200">
+                <button
+                  type="button"
+                  onClick={() => avancarMesAniversario(-1)}
+                  className="p-1 hover:bg-white rounded-lg text-stone-700 transition"
+                  title="Mês anterior"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+                <span className="px-2 text-xs font-bold text-stone-800 min-w-[78px] text-center">
+                  {MESES_NOMES[mesAniversario - 1]}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => avancarMesAniversario(1)}
+                  className="p-1 hover:bg-white rounded-lg text-stone-700 transition"
+                  title="Próximo mês"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
             {aniversariantes.length === 0 ? (
-              <p className="text-xs text-stone-500">Nenhum aniversariante neste mês.</p>
+              <p className="text-xs text-stone-500 py-2">Nenhum aniversariante em {MESES_NOMES[mesAniversario - 1]}.</p>
             ) : (
               <div className="space-y-2.5">
                 {aniversariantes.map(a => (
                   <div key={a.id} className="flex items-center justify-between p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/60">
                     <div>
                       <p className="text-sm font-semibold text-stone-800">{a.nome}</p>
-                      <p className="text-xs text-amber-800">Dia {a.data_nascimento.split('-')[2]}</p>
+                      <p className="text-xs text-amber-800">Dia {a.data_nascimento.split('-')[2]} de {MESES_NOMES[mesAniversario - 1]}</p>
                     </div>
                     <Cake className="w-4 h-4 text-amber-600" />
                   </div>
@@ -1572,38 +1733,71 @@ function MediumsTab({
   );
 }
 
-/* ===================== 3. ABA BEBIDAS ===================== */
-function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, currentUser, configCasa, showToast }) {
+/* ===================== 3. ABA BEBIDAS (NAVEGAÇÃO MENSAL + SALDO ACUMULADO) ===================== */
+function BebidasTab({
+  mediums, bebidas, setBebidas, financeiro, setFinanceiro,
+  currentUser, configCasa, saldoAcumuladoTotal, showToast
+}) {
+  const [mesSelecionado, setMesSelecionado] = useState(MES_ATUAL);
   const [compraDesc, setCompraDesc] = useState('');
   const [compraValor, setCompraValor] = useState('');
 
-  const comprasBebidas = financeiro.filter(f => f.categoria === 'Compra Bebidas');
-  const totalArrecadado = bebidas.filter(b => b.pago).length * 10;
-  const totalGasto = comprasBebidas.reduce((acc, item) => acc + Number(item.valor), 0);
+  const valorUnitario = Number(configCasa.valor_bebidas_padrao || 10);
+
+  // Movimentos do mês selecionado
+  const bebidasMes = bebidas.filter(b => b.mes_referencia === mesSelecionado);
+  const comprasBebidasMes = financeiro.filter(
+    f => f.categoria === 'Compra Bebidas' && (f.data_movimento || '').startsWith(mesSelecionado)
+  );
+
+  const arrecadadoMes = bebidasMes
+    .filter(b => b.pago)
+    .reduce((acc, b) => acc + Number(b.valor || valorUnitario), 0);
+  const gastoMes = comprasBebidasMes.reduce((acc, item) => acc + Number(item.valor || 0), 0);
+
+  // Saldo acumulado de meses anteriores ao mês selecionado
+  const arrecadadoAnteriores = bebidas
+    .filter(b => b.pago && b.mes_referencia < mesSelecionado)
+    .reduce((acc, b) => acc + Number(b.valor || valorUnitario), 0);
+  const gastoAnteriores = financeiro
+    .filter(f => f.categoria === 'Compra Bebidas' && (f.data_movimento || '').slice(0, 7) < mesSelecionado)
+    .reduce((acc, f) => acc + Number(f.valor || 0), 0);
+  const saldoAnterior = arrecadadoAnteriores - gastoAnteriores;
+  const saldoFinalMes = saldoAnterior + arrecadadoMes - gastoMes;
 
   const togglePagamento = async (mediumId) => {
-    const existente = bebidas.find(b => b.medium_id === mediumId);
+    const existente = bebidasMes.find(b => b.medium_id === mediumId);
     if (existente) {
       const novoStatus = !existente.pago;
       const { data } = await supabase
         .from('caixinha_bebidas')
-        .update({ pago: novoStatus, data_pagamento: novoStatus ? new Date().toISOString().slice(0, 10) : null })
+        .update({
+          pago: novoStatus,
+          valor: valorUnitario,
+          data_pagamento: novoStatus ? HOJE_STR : null
+        })
         .eq('id', existente.id)
         .select()
         .single();
       if (data) {
         setBebidas(bebidas.map(b => b.id === data.id ? data : b));
-        showToast(novoStatus ? 'Pagamento de R$ 10,00 confirmado!' : 'Status alterado para pendente.');
+        showToast(novoStatus ? `Pagamento de R$ ${valorUnitario.toFixed(2)} confirmado!` : 'Status alterado para pendente.');
       }
     } else {
       const { data } = await supabase
         .from('caixinha_bebidas')
-        .insert([{ medium_id: mediumId, mes_referencia: MES_ATUAL, valor: 10.00, pago: true, data_pagamento: new Date().toISOString().slice(0, 10) }])
+        .insert([{
+          medium_id: mediumId,
+          mes_referencia: mesSelecionado,
+          valor: valorUnitario,
+          pago: true,
+          data_pagamento: HOJE_STR
+        }])
         .select()
         .single();
       if (data) {
         setBebidas([...bebidas, data]);
-        showToast('Pagamento de R$ 10,00 confirmado!');
+        showToast(`Pagamento de R$ ${valorUnitario.toFixed(2)} confirmado!`);
       }
     }
   };
@@ -1611,6 +1805,7 @@ function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, c
   const registrarCompra = async (e) => {
     e.preventDefault();
     if (!compraDesc || !compraValor) return;
+    const dataLanc = mesSelecionado === MES_ATUAL ? HOJE_STR : `${mesSelecionado}-01`;
     const { data } = await supabase
       .from('financeiro')
       .insert([{
@@ -1618,6 +1813,8 @@ function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, c
         categoria: 'Compra Bebidas',
         descricao: compraDesc,
         valor: parseFloat(compraValor),
+        data_movimento: dataLanc,
+        status_lancamento: 'efetivado',
         registrado_por: currentUser?.nome
       }])
       .select()
@@ -1630,36 +1827,80 @@ function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, c
     }
   };
 
+  const excluirCompra = async (id) => {
+    await supabase.from('financeiro').delete().eq('id', id);
+    setFinanceiro(financeiro.filter(f => f.id !== id));
+    showToast('Compra excluída.');
+  };
+
   return (
     <div className="space-y-6">
       <PixBanner configCasa={configCasa} showToast={showToast} />
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
-          <p className="text-xs font-semibold text-stone-500 uppercase">Arrecadado ({MES_ATUAL})</p>
-          <p className="text-2xl font-bold text-emerald-800 mt-1">R$ {totalArrecadado.toFixed(2)}</p>
+      {/* Navegador de Mês */}
+      <div className="bg-white p-4 rounded-2xl border border-stone-200 shadow-sm flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-bold text-base text-stone-800 flex items-center gap-2">
+            <Wine className="w-5 h-5 text-amber-600" />
+            Controle de Bebidas • Contribuição: R$ {valorUnitario.toFixed(2)}
+          </h2>
+          <p className="text-xs text-stone-500">O saldo positivo acumula automaticamente para os próximos meses</p>
         </div>
-        <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
-          <p className="text-xs font-semibold text-stone-500 uppercase">Gasto com Bebidas</p>
-          <p className="text-2xl font-bold text-rose-700 mt-1">R$ {totalGasto.toFixed(2)}</p>
+
+        <div className="flex items-center gap-1.5 bg-stone-100 p-1 rounded-xl border border-stone-200">
+          <button
+            type="button"
+            onClick={() => setMesSelecionado(deslocarMesStr(mesSelecionado, -1))}
+            className="p-1.5 hover:bg-white rounded-lg text-stone-700"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <span className="px-3 text-xs font-bold text-stone-800 min-w-[135px] text-center">
+            {formatarMesAno(mesSelecionado)}
+          </span>
+          <button
+            type="button"
+            onClick={() => setMesSelecionado(deslocarMesStr(mesSelecionado, 1))}
+            className="p-1.5 hover:bg-white rounded-lg text-stone-700"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
         </div>
-        <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
-          <p className="text-xs font-semibold text-stone-500 uppercase">Saldo das Bebidas</p>
-          <p className="text-2xl font-bold text-amber-700 mt-1">R$ {(totalArrecadado - totalGasto).toFixed(2)}</p>
+      </div>
+
+      {/* Cards de Resumo com Saldo Acumulado */}
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <div className="bg-white p-4 rounded-2xl border border-stone-200 shadow-sm">
+          <p className="text-[11px] font-semibold text-stone-500 uppercase">Saldo Anterior Acumulado</p>
+          <p className="text-xl font-bold text-stone-700 mt-1">R$ {saldoAnterior.toFixed(2)}</p>
+        </div>
+        <div className="bg-white p-4 rounded-2xl border border-stone-200 shadow-sm">
+          <p className="text-[11px] font-semibold text-stone-500 uppercase">Arrecadado no Mês</p>
+          <p className="text-xl font-bold text-emerald-700 mt-1">+ R$ {arrecadadoMes.toFixed(2)}</p>
+        </div>
+        <div className="bg-white p-4 rounded-2xl border border-stone-200 shadow-sm">
+          <p className="text-[11px] font-semibold text-stone-500 uppercase">Compras no Mês</p>
+          <p className="text-xl font-bold text-rose-700 mt-1">- R$ {gastoMes.toFixed(2)}</p>
+        </div>
+        <div className="bg-amber-50 p-4 rounded-2xl border border-amber-300 shadow-sm">
+          <p className="text-[11px] font-bold text-amber-900 uppercase">Saldo Acumulado Final</p>
+          <p className="text-xl font-bold text-amber-950 mt-1">R$ {saldoFinalMes.toFixed(2)}</p>
+          {mesSelecionado !== MES_ATUAL && (
+            <p className="text-[10px] text-amber-800 mt-0.5">Saldo atual geral: R$ {saldoAcumuladoTotal.toFixed(2)}</p>
+          )}
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm">
-          <h2 className="font-bold text-base text-stone-800 mb-1 flex items-center gap-2">
-            <Wine className="w-5 h-5 text-amber-600" />
-            Contribuição Mensal (R$ 10,00 / Médium)
-          </h2>
-          <p className="text-xs text-stone-500 mb-4">Vencimento dia {configCasa.dia_vencimento || 10} • {MES_ATUAL}</p>
+          <h3 className="font-bold text-base text-stone-800 mb-1">
+            Pagamentos de {formatarMesAno(mesSelecionado)}
+          </h3>
+          <p className="text-xs text-stone-500 mb-4">Vencimento dia {configCasa.dia_vencimento || 10}</p>
 
           <div className="space-y-2">
             {mediums.map(m => {
-              const reg = bebidas.find(b => b.medium_id === m.id);
+              const reg = bebidasMes.find(b => b.medium_id === m.id);
               const pago = Boolean(reg?.pago);
               return (
                 <div key={m.id} className="flex items-center justify-between p-3 rounded-xl bg-stone-50 border border-stone-200">
@@ -1675,7 +1916,7 @@ function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, c
                         : 'bg-amber-100 text-amber-800 border border-amber-300'
                     }`}
                   >
-                    {pago ? '✓ Pago (R$ 10)' : 'Pendente'}
+                    {pago ? `✓ Pago (R$ ${Number(reg.valor || valorUnitario).toFixed(2)})` : 'Pendente'}
                   </button>
                 </div>
               );
@@ -1684,7 +1925,9 @@ function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, c
         </div>
 
         <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm">
-          <h2 className="font-bold text-base text-stone-800 mb-4">Prestação de Contas (Compras)</h2>
+          <h3 className="font-bold text-base text-stone-800 mb-4">
+            Compras de Bebidas ({formatarMesAno(mesSelecionado)})
+          </h3>
 
           <form onSubmit={registrarCompra} className="flex flex-wrap gap-2 mb-4 bg-stone-50 p-3 rounded-xl border border-stone-200">
             <input
@@ -1710,16 +1953,21 @@ function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, c
           </form>
 
           <div className="space-y-2">
-            {comprasBebidas.length === 0 ? (
-              <p className="text-xs text-stone-500 text-center py-6">Nenhuma compra registrada ainda.</p>
+            {comprasBebidasMes.length === 0 ? (
+              <p className="text-xs text-stone-500 text-center py-6">Nenhuma compra registrada neste mês.</p>
             ) : (
-              comprasBebidas.map(c => (
+              comprasBebidasMes.map(c => (
                 <div key={c.id} className="flex items-center justify-between p-3 rounded-xl bg-stone-50 border border-stone-200 text-xs">
                   <div>
                     <p className="font-semibold text-stone-800">{c.descricao}</p>
                     <p className="text-stone-400">{c.data_movimento}</p>
                   </div>
-                  <span className="font-bold text-rose-700">- R$ {Number(c.valor).toFixed(2)}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-rose-700">- R$ {Number(c.valor).toFixed(2)}</span>
+                    <button onClick={() => excluirCompra(c.id)} className="text-stone-400 hover:text-rose-600">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               ))
             )}
@@ -1730,40 +1978,74 @@ function BebidasTab({ mediums, bebidas, setBebidas, financeiro, setFinanceiro, c
   );
 }
 
-/* ===================== 4. ABA FINANCEIRO ===================== */
-function FinanceiroTab({ mediums, financeiro, setFinanceiro, currentUser, configCasa, showToast }) {
-  const [form, setForm] = useState({ tipo: 'entrada', categoria: 'Mensalidade', descricao: '', valor: '' });
+/* ===================== 4. ABA FINANCEIRO (TODOS OS SALDOS, DESPESAS FIXAS, LANÇAMENTOS FUTUROS E MESES) ===================== */
+function FinanceiroTab({
+  mediums, financeiro, setFinanceiro, despesasFixas, setDespesasFixas,
+  saldoPrincipal, saldoAcumuladoBebidas, saldoTotalCaixinhas, campanhas,
+  currentUser, configCasa, setActiveTab, showToast
+}) {
+  const [mesSelecionado, setMesSelecionado] = useState(MES_ATUAL);
   const [valorMensalidadePadrao, setValorMensalidadePadrao] = useState(
     String(Number(configCasa.valor_mensalidade_padrao || 50).toFixed(2))
   );
+
+  // Formulário de Lançamento (atual ou futuro)
+  const [form, setForm] = useState({
+    tipo: 'saida',
+    categoria: 'Luz / Energia',
+    descricao: '',
+    valor: '',
+    data_movimento: HOJE_STR,
+    status_lancamento: 'efetivado'
+  });
+
+  // Formulário de Despesa Fixa Recorrente
+  const [novaFixa, setNovaFixa] = useState({
+    titulo: '',
+    categoria: 'Aluguel',
+    valor: '',
+    dia_vencimento: 10
+  });
 
   useEffect(() => {
     setValorMensalidadePadrao(String(Number(configCasa.valor_mensalidade_padrao || 50).toFixed(2)));
   }, [configCasa.valor_mensalidade_padrao]);
 
   const movsGerais = financeiro.filter(f => f.categoria !== 'Compra Bebidas');
-  const entradas = movsGerais.filter(f => f.tipo === 'entrada').reduce((a, b) => a + Number(b.valor), 0);
-  const saidas = movsGerais.filter(f => f.tipo === 'saida').reduce((a, b) => a + Number(b.valor), 0);
+  const movsDoMes = movsGerais.filter(f => (f.data_movimento || '').startsWith(mesSelecionado));
 
-  const mensalidadesMes = movsGerais.filter(
-    f => f.categoria === 'Mensalidade' && (f.data_movimento || '').startsWith(MES_ATUAL)
-  );
+  const entradasMesEfetivadas = movsDoMes
+    .filter(f => f.tipo === 'entrada' && (f.status_lancamento || 'efetivado') === 'efetivado')
+    .reduce((a, b) => a + Number(b.valor || 0), 0);
+
+  const saidasMesEfetivadas = movsDoMes
+    .filter(f => f.tipo === 'saida' && (f.status_lancamento || 'efetivado') === 'efetivado')
+    .reduce((a, b) => a + Number(b.valor || 0), 0);
+
+  const lancamentosFuturosPendentes = movsGerais
+    .filter(f => (f.status_lancamento || 'efetivado') === 'pendente')
+    .sort((a, b) => (a.data_movimento || '').localeCompare(b.data_movimento || ''));
+
+  const mensalidadesMes = movsDoMes.filter(f => f.categoria === 'Mensalidade');
 
   const toggleMensalidadeMedium = async (m) => {
-    const registroExistente = mensalidadesMes.find(item => item.descricao === `Mensalidade (${MES_ATUAL}) - ${m.nome}`);
+    const registroExistente = mensalidadesMes.find(item => item.descricao === `Mensalidade (${mesSelecionado}) - ${m.nome}`);
     if (registroExistente) {
       await supabase.from('financeiro').delete().eq('id', registroExistente.id);
       setFinanceiro(financeiro.filter(f => f.id !== registroExistente.id));
       showToast(`Mensalidade de ${m.nome} marcada como pendente.`);
     } else {
       const val = parseFloat(valorMensalidadePadrao) || 50;
+      const dataLanc = mesSelecionado === MES_ATUAL ? HOJE_STR : `${mesSelecionado}-10`;
       const { data } = await supabase
         .from('financeiro')
         .insert([{
           tipo: 'entrada',
           categoria: 'Mensalidade',
-          descricao: `Mensalidade (${MES_ATUAL}) - ${m.nome}`,
+          descricao: `Mensalidade (${mesSelecionado}) - ${m.nome}`,
           valor: val,
+          data_movimento: dataLanc,
+          status_lancamento: 'efetivado',
           registrado_por: currentUser?.nome
         }])
         .select()
@@ -1778,15 +2060,53 @@ function FinanceiroTab({ mediums, financeiro, setFinanceiro, currentUser, config
   const adicionarMovimento = async (e) => {
     e.preventDefault();
     if (!form.descricao || !form.valor) return;
+
+    const isDataFutura = form.data_movimento > HOJE_STR;
+    const statusFinal = isDataFutura && form.status_lancamento === 'efetivado' ? 'pendente' : form.status_lancamento;
+
+    const payload = {
+      tipo: form.tipo,
+      categoria: form.categoria,
+      descricao: form.descricao,
+      valor: parseFloat(form.valor),
+      data_movimento: form.data_movimento || HOJE_STR,
+      status_lancamento: statusFinal,
+      registrado_por: currentUser?.nome
+    };
+
+    let res = await supabase.from('financeiro').insert([payload]).select().single();
+    if (res.error) {
+      // Fallback caso status_lancamento ainda não exista
+      const { status_lancamento, ...semStatus } = payload;
+      res = await supabase.from('financeiro').insert([semStatus]).select().single();
+    }
+
+    if (!res.error && res.data) {
+      setFinanceiro([res.data, ...financeiro]);
+      setMesSelecionado((res.data.data_movimento || MES_ATUAL).slice(0, 7));
+      setForm({
+        tipo: 'saida',
+        categoria: 'Luz / Energia',
+        descricao: '',
+        valor: '',
+        data_movimento: HOJE_STR,
+        status_lancamento: 'efetivado'
+      });
+      showToast(statusFinal === 'pendente' ? 'Lançamento futuro agendado!' : 'Lançamento financeiro registrado!');
+    }
+  };
+
+  const efetivarLancamentoFuturo = async (item) => {
     const { data } = await supabase
       .from('financeiro')
-      .insert([{ ...form, valor: parseFloat(form.valor), registrado_por: currentUser?.nome }])
+      .update({ status_lancamento: 'efetivado' })
+      .eq('id', item.id)
       .select()
       .single();
+
     if (data) {
-      setFinanceiro([data, ...financeiro]);
-      setForm({ tipo: 'entrada', categoria: 'Mensalidade', descricao: '', valor: '' });
-      showToast('Lançamento financeiro registrado!');
+      setFinanceiro(financeiro.map(f => f.id === item.id ? data : f));
+      showToast('Lançamento confirmado no saldo!');
     }
   };
 
@@ -1796,29 +2116,286 @@ function FinanceiroTab({ mediums, financeiro, setFinanceiro, currentUser, config
     showToast('Lançamento excluído.');
   };
 
+  // Despesas Fixas
+  const criarDespesaFixa = async (e) => {
+    e.preventDefault();
+    if (!novaFixa.titulo || !novaFixa.valor) return;
+    const { data, error } = await supabase
+      .from('despesas_fixas')
+      .insert([{
+        titulo: novaFixa.titulo,
+        categoria: novaFixa.categoria,
+        valor: parseFloat(novaFixa.valor),
+        dia_vencimento: parseInt(novaFixa.dia_vencimento, 10) || 10,
+        ativa: true
+      }])
+      .select()
+      .single();
+
+    if (!error && data) {
+      setDespesasFixas([...despesasFixas, data]);
+      setNovaFixa({ titulo: '', categoria: 'Aluguel', valor: '', dia_vencimento: 10 });
+      showToast('Despesa fixa cadastrada!');
+    } else if (error) {
+      showToast('Erro ao salvar despesa fixa. Rode o SQL atualizado no Supabase.');
+    }
+  };
+
+  const lancarDespesaFixaNoMes = async (df, comoPendente = false) => {
+    const diaStr = String(df.dia_vencimento || 10).padStart(2, '0');
+    const dataVenc = `${mesSelecionado}-${diaStr}`;
+    const { data } = await supabase
+      .from('financeiro')
+      .insert([{
+        tipo: 'saida',
+        categoria: df.categoria,
+        descricao: `${df.titulo} (Despesa Fixa - ${mesSelecionado})`,
+        valor: Number(df.valor),
+        data_movimento: dataVenc,
+        status_lancamento: comoPendente ? 'pendente' : 'efetivado',
+        registrado_por: currentUser?.nome
+      }])
+      .select()
+      .single();
+
+    if (data) {
+      setFinanceiro([data, ...financeiro]);
+      showToast(comoPendente ? 'Agendada como previsão futura!' : 'Despesa fixa lançada no mês!');
+    }
+  };
+
+  const excluirDespesaFixa = async (id) => {
+    await supabase.from('despesas_fixas').delete().eq('id', id);
+    setDespesasFixas(despesasFixas.filter(d => d.id !== id));
+    showToast('Despesa fixa removida.');
+  };
+
+  const patrimonioTotal = saldoPrincipal + saldoAcumuladoBebidas + saldoTotalCaixinhas;
+
   return (
     <div className="space-y-6">
       <PixBanner configCasa={configCasa} showToast={showToast} />
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
-          <p className="text-xs font-semibold text-stone-500 uppercase">Total Entradas</p>
-          <p className="text-2xl font-bold text-emerald-700 mt-1">R$ {entradas.toFixed(2)}</p>
+      {/* VISÃO CONSOLIDADA DE TODOS OS SALDOS DA CASA */}
+      <div className="bg-emerald-950 text-white p-6 rounded-2xl shadow-sm space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-xs uppercase tracking-wider text-amber-300 font-bold">Gestão Centralizada de Saldos</p>
+            <h2 className="text-xl font-bold mt-0.5">Visão Geral das Contas da {configCasa.nome_casa || 'Casa Bendizer'}</h2>
+          </div>
+          <div className="text-right">
+            <p className="text-[11px] text-emerald-300 uppercase">Soma Total (Todas as Contas)</p>
+            <p className="text-2xl font-bold text-amber-300">R$ {patrimonioTotal.toFixed(2)}</p>
+          </div>
         </div>
-        <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
-          <p className="text-xs font-semibold text-stone-500 uppercase">Total Saídas</p>
-          <p className="text-2xl font-bold text-rose-700 mt-1">R$ {saidas.toFixed(2)}</p>
-        </div>
-        <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-sm">
-          <p className="text-xs font-semibold text-stone-500 uppercase">Saldo Financeiro</p>
-          <p className="text-2xl font-bold text-stone-800 mt-1">R$ {(entradas - saidas).toFixed(2)}</p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+          <div className="bg-emerald-900/80 border border-emerald-800 p-4 rounded-xl">
+            <p className="text-[11px] uppercase text-emerald-300 font-semibold">1. Saldo Principal (Financeiro)</p>
+            <p className="text-xl font-bold text-white mt-1">R$ {saldoPrincipal.toFixed(2)}</p>
+            <p className="text-[11px] text-emerald-300/80 mt-0.5">Mensalidades, contas e despesas gerais</p>
+          </div>
+
+          <div
+            onClick={() => setActiveTab('bebidas')}
+            className="bg-emerald-900/80 border border-emerald-800 hover:border-amber-400/60 p-4 rounded-xl cursor-pointer transition"
+          >
+            <p className="text-[11px] uppercase text-emerald-300 font-semibold">2. Saldo Acumulado Bebidas</p>
+            <p className="text-xl font-bold text-white mt-1">R$ {saldoAcumuladoBebidas.toFixed(2)}</p>
+            <p className="text-[11px] text-amber-300 mt-0.5">Clique para abrir detalhes →</p>
+          </div>
+
+          <div
+            onClick={() => setActiveTab('doacoes')}
+            className="bg-emerald-900/80 border border-emerald-800 hover:border-amber-400/60 p-4 rounded-xl cursor-pointer transition"
+          >
+            <p className="text-[11px] uppercase text-emerald-300 font-semibold">3. Saldo Total das Caixinhas ({campanhas.length})</p>
+            <p className="text-xl font-bold text-white mt-1">R$ {saldoTotalCaixinhas.toFixed(2)}</p>
+            <p className="text-[11px] text-amber-300 mt-0.5">Clique para gerenciar caixinhas →</p>
+          </div>
         </div>
       </div>
 
+      {/* NAVEGAÇÃO ENTRE MESES */}
+      <div className="bg-white p-4 rounded-2xl border border-stone-200 shadow-sm flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Calendar className="w-5 h-5 text-emerald-700" />
+          <span className="font-bold text-sm text-stone-800">Período de Análise:</span>
+        </div>
+
+        <div className="flex items-center gap-1.5 bg-stone-100 p-1 rounded-xl border border-stone-200">
+          <button
+            type="button"
+            onClick={() => setMesSelecionado(deslocarMesStr(mesSelecionado, -1))}
+            className="p-1.5 hover:bg-white rounded-lg text-stone-700"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <span className="px-3 text-xs font-bold text-stone-800 min-w-[140px] text-center">
+            {formatarMesAno(mesSelecionado)}
+          </span>
+          <button
+            type="button"
+            onClick={() => setMesSelecionado(deslocarMesStr(mesSelecionado, 1))}
+            className="p-1.5 hover:bg-white rounded-lg text-stone-700"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="flex gap-4 text-xs">
+          <span className="font-semibold text-emerald-700">Entradas Mês: + R$ {entradasMesEfetivadas.toFixed(2)}</span>
+          <span className="font-semibold text-rose-700">Saídas Mês: - R$ {saidasMesEfetivadas.toFixed(2)}</span>
+        </div>
+      </div>
+
+      {/* DESPESAS FIXAS RECORRENTES */}
+      <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm space-y-4">
+        <div>
+          <h2 className="font-bold text-base text-stone-800 flex items-center gap-2">
+            <Repeat className="w-5 h-5 text-emerald-700" />
+            Despesas Fixas da Casa (Recorrentes)
+          </h2>
+          <p className="text-xs text-stone-500">
+            Cadastre contas mensais fixas (Água, Luz, Internet, Aluguel, Impostos) e lance ou agende em {formatarMesAno(mesSelecionado)} com 1 clique.
+          </p>
+        </div>
+
+        <form onSubmit={criarDespesaFixa} className="grid grid-cols-1 sm:grid-cols-5 gap-2 bg-stone-50 p-3 rounded-xl border border-stone-200">
+          <input
+            type="text"
+            required
+            placeholder="Nome (Ex: Conta de Luz Enel)"
+            value={novaFixa.titulo}
+            onChange={e => setNovaFixa({ ...novaFixa, titulo: e.target.value })}
+            className="sm:col-span-2 px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white"
+          />
+          <select
+            value={novaFixa.categoria}
+            onChange={e => setNovaFixa({ ...novaFixa, categoria: e.target.value })}
+            className="px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white"
+          >
+            {CATEGORIAS_FINANCEIRO_PADRAO.filter(c => c !== 'Mensalidade' && c !== 'Doação').map(cat => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
+          <div className="flex gap-1.5">
+            <input
+              type="number"
+              step="0.01"
+              required
+              placeholder="Valor R$"
+              value={novaFixa.valor}
+              onChange={e => setNovaFixa({ ...novaFixa, valor: e.target.value })}
+              className="w-24 px-2.5 py-2 text-xs border border-stone-200 rounded-lg bg-white"
+            />
+            <input
+              type="number"
+              min={1}
+              max={31}
+              required
+              title="Dia do vencimento"
+              placeholder="Dia"
+              value={novaFixa.dia_vencimento}
+              onChange={e => setNovaFixa({ ...novaFixa, dia_vencimento: e.target.value })}
+              className="w-16 px-2 py-2 text-xs border border-stone-200 rounded-lg bg-white"
+            />
+          </div>
+          <button type="submit" className="bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-semibold rounded-lg py-2">
+            + Salvar Fixa
+          </button>
+        </form>
+
+        {despesasFixas.length === 0 ? (
+          <p className="text-xs text-stone-500">Nenhuma despesa fixa cadastrada ainda.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {despesasFixas.map(df => {
+              const jaLancadaNoMes = movsDoMes.some(m => m.descricao === `${df.titulo} (Despesa Fixa - ${mesSelecionado})`);
+              return (
+                <div key={df.id} className="flex flex-wrap items-center justify-between gap-2 p-3.5 rounded-xl bg-stone-50 border border-stone-200 text-xs">
+                  <div>
+                    <p className="font-bold text-stone-800">{df.titulo}</p>
+                    <p className="text-stone-500">
+                      {df.categoria} • Vence dia {df.dia_vencimento} • <strong>R$ {Number(df.valor).toFixed(2)}</strong>
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {jaLancadaNoMes ? (
+                      <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 rounded-lg font-bold">✓ Lançada</span>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => lancarDespesaFixaNoMes(df, false)}
+                          className="px-2.5 py-1.5 bg-emerald-800 hover:bg-emerald-900 text-white font-semibold rounded-lg"
+                        >
+                          Pagar Mês
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => lancarDespesaFixaNoMes(df, true)}
+                          className="px-2.5 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-950 font-semibold rounded-lg"
+                          title="Agendar como previsão futura"
+                        >
+                          Agendar
+                        </button>
+                      </>
+                    )}
+                    <button onClick={() => excluirDespesaFixa(df.id)} className="text-stone-400 hover:text-rose-600 p-1">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* LANÇAMENTOS FUTUROS / PREVISÕES PENDENTES */}
+      {lancamentosFuturosPendentes.length > 0 && (
+        <div className="bg-amber-50 border border-amber-300 rounded-2xl p-5 space-y-3">
+          <h3 className="font-bold text-sm text-amber-950 flex items-center gap-2">
+            <Clock className="w-4 h-4 text-amber-700" />
+            Lançamentos Futuros & Contas Agendadas ({lancamentosFuturosPendentes.length})
+          </h3>
+          <div className="space-y-2">
+            {lancamentosFuturosPendentes.map(item => (
+              <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 bg-white p-3 rounded-xl border border-amber-200 text-xs">
+                <div>
+                  <span className="font-bold text-stone-800">{item.descricao}</span>
+                  <span className="ml-2 px-2 py-0.5 bg-stone-100 rounded text-[10px]">{item.categoria}</span>
+                  <p className="text-stone-500 mt-0.5">
+                    Data prevista: <strong>{item.data_movimento?.split('-').reverse().join('/')}</strong>
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`font-bold ${item.tipo === 'entrada' ? 'text-emerald-700' : 'text-rose-700'}`}>
+                    {item.tipo === 'entrada' ? '+' : '-'} R$ {Number(item.valor).toFixed(2)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => efetivarLancamentoFuturo(item)}
+                    className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-semibold rounded-lg"
+                  >
+                    ✓ Confirmar Pagamento
+                  </button>
+                  <button onClick={() => excluirMovimento(item.id)} className="text-stone-400 hover:text-rose-600 p-1">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* CONTROLE DE MENSALIDADES DO MÊS SELECIONADO */}
       <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div>
-            <h2 className="font-bold text-base text-stone-800">Controle de Mensalidades ({MES_ATUAL})</h2>
+            <h2 className="font-bold text-base text-stone-800">Controle de Mensalidades ({formatarMesAno(mesSelecionado)})</h2>
             <p className="text-xs text-stone-500">Vencimento dia {configCasa.dia_vencimento || 10} • Clique para confirmar o pagamento</p>
           </div>
           <div className="flex items-center gap-2 bg-stone-50 px-3 py-1.5 rounded-xl border border-stone-200">
@@ -1835,7 +2412,7 @@ function FinanceiroTab({ mediums, financeiro, setFinanceiro, currentUser, config
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
           {mediums.map(m => {
-            const pagoReg = mensalidadesMes.find(item => item.descricao === `Mensalidade (${MES_ATUAL}) - ${m.nome}`);
+            const pagoReg = mensalidadesMes.find(item => item.descricao === `Mensalidade (${mesSelecionado}) - ${m.nome}`);
             const pago = Boolean(pagoReg);
             return (
               <div key={m.id} className="flex items-center justify-between p-3 rounded-xl bg-stone-50 border border-stone-200">
@@ -1859,33 +2436,40 @@ function FinanceiroTab({ mediums, financeiro, setFinanceiro, currentUser, config
         </div>
       </div>
 
+      {/* NOVO LANÇAMENTO FINANCEIRO (COM CATEGORIAS E DATA) */}
       <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm">
-        <h2 className="font-bold text-base text-stone-800 mb-4">Movimentação Financeira Geral</h2>
-        <form onSubmit={adicionarMovimento} className="grid grid-cols-1 sm:grid-cols-5 gap-2 mb-5 bg-stone-50 p-3 rounded-xl border border-stone-200">
+        <h2 className="font-bold text-base text-stone-800 mb-4">
+          Lançamentos de {formatarMesAno(mesSelecionado)} (Entradas, Despesas & Futuros)
+        </h2>
+        <form onSubmit={adicionarMovimento} className="grid grid-cols-1 sm:grid-cols-6 gap-2 mb-5 bg-stone-50 p-3.5 rounded-xl border border-stone-200">
           <select
             value={form.tipo}
             onChange={e => setForm({ ...form, tipo: e.target.value })}
-            className="px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white"
+            className="px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white font-semibold"
           >
-            <option value="entrada">Entrada (+)</option>
             <option value="saida">Saída (-)</option>
+            <option value="entrada">Entrada (+)</option>
           </select>
-          <input
-            type="text"
-            placeholder="Categoria (Ex: Luz, Velas, Aluguel)"
+
+          <select
             value={form.categoria}
             onChange={e => setForm({ ...form, categoria: e.target.value })}
             className="px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white"
-            required
-          />
+          >
+            {CATEGORIAS_FINANCEIRO_PADRAO.map(cat => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
+
           <input
             type="text"
-            placeholder="Descrição detalhada"
+            placeholder="Descrição (Ex: Papel higiênico, água, velas...)"
             value={form.descricao}
             onChange={e => setForm({ ...form, descricao: e.target.value })}
-            className="px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white"
+            className="sm:col-span-2 px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white"
             required
           />
+
           <input
             type="number"
             step="0.01"
@@ -1895,41 +2479,83 @@ function FinanceiroTab({ mediums, financeiro, setFinanceiro, currentUser, config
             className="px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white"
             required
           />
-          <button type="submit" className="bg-emerald-800 text-white text-xs font-semibold rounded-lg py-2">
-            + Registrar
+
+          <input
+            type="date"
+            value={form.data_movimento}
+            onChange={e => setForm({ ...form, data_movimento: e.target.value })}
+            className="px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white"
+            required
+          />
+
+          <div className="sm:col-span-4 flex items-center gap-4 pt-1">
+            <label className="flex items-center gap-1.5 text-xs text-stone-700 cursor-pointer">
+              <input
+                type="radio"
+                name="statusLanc"
+                checked={form.status_lancamento === 'efetivado'}
+                onChange={() => setForm({ ...form, status_lancamento: 'efetivado' })}
+              />
+              Já pago / efetivado
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-amber-900 font-medium cursor-pointer">
+              <input
+                type="radio"
+                name="statusLanc"
+                checked={form.status_lancamento === 'pendente'}
+                onChange={() => setForm({ ...form, status_lancamento: 'pendente' })}
+              />
+              Lançamento futuro / a pagar
+            </label>
+          </div>
+
+          <button type="submit" className="sm:col-span-2 bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-semibold rounded-lg py-2">
+            + Registrar Lançamento
           </button>
         </form>
 
         <div className="space-y-2">
-          {movsGerais.map(f => (
-            <div key={f.id} className="flex items-center justify-between p-3 rounded-xl bg-stone-50 border border-stone-200 text-xs">
-              <div>
-                <span className="font-bold text-stone-800">{f.descricao}</span>
-                <span className="ml-2 px-2 py-0.5 bg-stone-200 rounded text-[10px]">{f.categoria}</span>
-                <p className="text-stone-400 mt-0.5">{f.data_movimento} • {f.registrado_por}</p>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className={`font-bold ${f.tipo === 'entrada' ? 'text-emerald-700' : 'text-rose-700'}`}>
-                  {f.tipo === 'entrada' ? '+' : '-'} R$ {Number(f.valor).toFixed(2)}
-                </span>
-                <button onClick={() => excluirMovimento(f.id)} className="text-stone-400 hover:text-rose-600" title="Excluir lançamento">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          ))}
+          {movsDoMes.length === 0 ? (
+            <p className="text-xs text-stone-500 text-center py-6">Nenhuma movimentação registrada em {formatarMesAno(mesSelecionado)}.</p>
+          ) : (
+            movsDoMes.map(f => {
+              const isPendente = (f.status_lancamento || 'efetivado') === 'pendente';
+              return (
+                <div key={f.id} className={`flex items-center justify-between p-3 rounded-xl border text-xs ${isPendente ? 'bg-amber-50/70 border-amber-200' : 'bg-stone-50 border-stone-200'}`}>
+                  <div>
+                    <span className="font-bold text-stone-800">{f.descricao}</span>
+                    <span className="ml-2 px-2 py-0.5 bg-stone-200 rounded text-[10px]">{f.categoria}</span>
+                    {isPendente && (
+                      <span className="ml-2 px-2 py-0.5 bg-amber-200 text-amber-950 rounded text-[10px] font-bold">Futuro / Pendente</span>
+                    )}
+                    <p className="text-stone-400 mt-0.5">{f.data_movimento?.split('-').reverse().join('/')} • {f.registrado_por}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className={`font-bold ${f.tipo === 'entrada' ? 'text-emerald-700' : 'text-rose-700'}`}>
+                      {f.tipo === 'entrada' ? '+' : '-'} R$ {Number(f.valor).toFixed(2)}
+                    </span>
+                    <button onClick={() => excluirMovimento(f.id)} className="text-stone-400 hover:text-rose-600" title="Excluir lançamento">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-/* ===================== 5. ABA CAIXINHA DO TERREIRO ===================== */
+/* ===================== 5. ABA CAIXINHA DO TERREIRO (COM APROVAÇÃO DE DOAÇÕES) ===================== */
 function DoacoesTab({
-  campanhas, setCampanhas, financeiro, setFinanceiro, currentUser,
+  campanhas, setCampanhas, doacoesPendentes, setDoacoesPendentes,
+  financeiro, setFinanceiro, currentUser,
   canCaixinha, categoriasCaixinha, configCasa, showToast
 }) {
   const [valorDoacao, setValorDoacao] = useState('');
+  const [obsDoacao, setObsDoacao] = useState('');
   const [campanhaSelecionada, setCampanhaSelecionada] = useState('');
   const [novaCamp, setNovaCamp] = useState({ titulo: '', categoria: categoriasCaixinha[0] || 'Manutenção & Velas', descricao: '', meta: '' });
 
@@ -1940,6 +2566,7 @@ function DoacoesTab({
   const [movForm, setMovForm] = useState({ tipo: 'saida', descricao: '', valor: '' });
 
   const totalArrecadadoGeral = campanhas.reduce((acc, c) => acc + Number(c.arrecadado || 0), 0);
+  const filaAprovacao = doacoesPendentes.filter(d => d.status === 'pendente');
 
   const criarCampanha = async (e) => {
     e.preventDefault();
@@ -1974,8 +2601,6 @@ function DoacoesTab({
       setCampanhas([res.data, ...campanhas]);
       setNovaCamp({ titulo: '', categoria: categoriasCaixinha[0] || 'Manutenção & Velas', descricao: '', meta: '' });
       showToast('Nova caixinha salva com sucesso!');
-    } else {
-      showToast('Erro ao criar caixinha: ' + (res.error?.message || 'verifique o banco.'));
     }
   };
 
@@ -2046,6 +2671,7 @@ function DoacoesTab({
         categoria: `Caixinha: ${camp.titulo}`,
         descricao: movForm.descricao || (movForm.tipo === 'entrada' ? 'Reforço na caixinha' : 'Uso de recurso da caixinha'),
         valor: val,
+        status_lancamento: 'efetivado',
         registrado_por: currentUser?.nome
       }])
       .select()
@@ -2057,14 +2683,41 @@ function DoacoesTab({
     showToast('Movimentação registrada na caixinha!');
   };
 
-  const registrarDoacao = async (e) => {
+  // Médium envia solicitação de doação -> vai para aprovação
+  const solicitarRegistroDoacao = async (e) => {
     e.preventDefault();
     const val = parseFloat(valorDoacao);
     if (!val || val <= 0) return;
 
     const camp = campanhas.find(c => c.id === campanhaSelecionada) || campanhas[0];
+
+    const { data, error } = await supabase
+      .from('doacoes_pendentes')
+      .insert([{
+        campanha_id: camp?.id || null,
+        campanha_titulo: camp?.titulo || 'Caixinha Geral',
+        doador_nome: currentUser?.nome || 'Médium',
+        valor: val,
+        observacao: obsDoacao,
+        status: 'pendente'
+      }])
+      .select()
+      .single();
+
+    if (!error && data) {
+      setDoacoesPendentes([data, ...doacoesPendentes]);
+      setValorDoacao('');
+      setObsDoacao('');
+      showToast('Solicitação enviada! Aguardando conferência e aprovação dos responsáveis da Caixinha.');
+    } else if (error) {
+      showToast('Erro ao enviar doação. Rode o SQL atualizado no Supabase.');
+    }
+  };
+
+  const aprovarDoacao = async (sol) => {
+    const camp = campanhas.find(c => c.id === sol.campanha_id) || campanhas.find(c => c.titulo === sol.campanha_titulo);
     if (camp) {
-      const novoTotal = Number(camp.arrecadado) + val;
+      const novoTotal = Number(camp.arrecadado) + Number(sol.valor);
       const { data: campAtualizada } = await supabase
         .from('campanhas_doacao')
         .update({ arrecadado: novoTotal })
@@ -2081,16 +2734,33 @@ function DoacoesTab({
       .insert([{
         tipo: 'entrada',
         categoria: 'Doação',
-        descricao: `Doação Caixinha (${currentUser?.nome})`,
-        valor: val,
+        descricao: `Doação Caixinha (${sol.campanha_titulo}) - ${sol.doador_nome}`,
+        valor: Number(sol.valor),
+        status_lancamento: 'efetivado',
         registrado_por: currentUser?.nome
       }])
       .select()
       .single();
 
     if (fin) setFinanceiro([fin, ...financeiro]);
-    setValorDoacao('');
-    showToast('Gratidão! Sua doação foi registrada na Caixinha.');
+
+    const { data: solAtualizada } = await supabase
+      .from('doacoes_pendentes')
+      .update({ status: 'aprovado' })
+      .eq('id', sol.id)
+      .select()
+      .single();
+
+    if (solAtualizada) {
+      setDoacoesPendentes(doacoesPendentes.map(d => d.id === sol.id ? solAtualizada : d));
+    }
+    showToast(`Doação de R$ ${Number(sol.valor).toFixed(2)} aprovada e somada na Caixinha!`);
+  };
+
+  const recusarDoacao = async (id) => {
+    await supabase.from('doacoes_pendentes').delete().eq('id', id);
+    setDoacoesPendentes(doacoesPendentes.filter(d => d.id !== id));
+    showToast('Solicitação de doação recusada/removida.');
   };
 
   return (
@@ -2104,6 +2774,41 @@ function DoacoesTab({
       </div>
 
       <PixBanner configCasa={configCasa} showToast={showToast} />
+
+      {/* FILA DE APROVAÇÃO DE DOAÇÕES (PARA OS RESPONSÁVEIS) */}
+      {canCaixinha && filaAprovacao.length > 0 && (
+        <div className="bg-amber-50 border border-amber-300 p-5 rounded-2xl space-y-3">
+          <h3 className="font-bold text-sm text-amber-950 flex items-center gap-2">
+            <Clock className="w-4 h-4 text-amber-700" />
+            Doações Aguardando Conferência e Aprovação ({filaAprovacao.length})
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {filaAprovacao.map(sol => (
+              <div key={sol.id} className="bg-white p-4 rounded-xl border border-amber-200 shadow-sm flex flex-wrap items-center justify-between gap-3">
+                <div className="text-xs">
+                  <p className="font-bold text-stone-800">{sol.doador_nome} • <span className="text-emerald-800">R$ {Number(sol.valor).toFixed(2)}</span></p>
+                  <p className="text-stone-500">Destino: {sol.campanha_titulo}</p>
+                  {sol.observacao && <p className="text-stone-400 italic mt-0.5">"{sol.observacao}"</p>}
+                </div>
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={() => aprovarDoacao(sol)}
+                    className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg flex items-center gap-1"
+                  >
+                    <Check className="w-3.5 h-3.5" /> Aprovar
+                  </button>
+                  <button
+                    onClick={() => recusarDoacao(sol.id)}
+                    className="px-2.5 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-800 text-xs font-semibold rounded-lg flex items-center gap-1"
+                  >
+                    <X className="w-3.5 h-3.5" /> Recusar
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-4">
@@ -2308,13 +3013,15 @@ function DoacoesTab({
           })}
         </div>
 
-        <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm h-fit">
-          <h3 className="font-bold text-base text-stone-800 mb-2">Contribuir com a Caixinha</h3>
-          <p className="text-xs text-stone-500 mb-4">
-            Registre sua contribuição voluntária para ajudar nas velas, ervas e manutenção da casa.
-          </p>
+        <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-sm h-fit space-y-4">
+          <div>
+            <h3 className="font-bold text-base text-stone-800 mb-1">Informar Doação para Caixinha</h3>
+            <p className="text-xs text-stone-500">
+              Após realizar o PIX ou entrega, registre aqui. O valor entra no saldo assim que os responsáveis confirmarem o recebimento.
+            </p>
+          </div>
 
-          <form onSubmit={registrarDoacao} className="space-y-3">
+          <form onSubmit={solicitarRegistroDoacao} className="space-y-3">
             {campanhas.length > 0 && (
               <div>
                 <label className="block text-xs font-semibold text-stone-600 mb-1">Caixinha / Destino</label>
@@ -2331,7 +3038,7 @@ function DoacoesTab({
             )}
 
             <div>
-              <label className="block text-xs font-semibold text-stone-600 mb-1">Valor da Doação (R$)</label>
+              <label className="block text-xs font-semibold text-stone-600 mb-1">Valor Doado (R$)</label>
               <input
                 type="number"
                 step="0.01"
@@ -2343,10 +3050,39 @@ function DoacoesTab({
               />
             </div>
 
+            <div>
+              <label className="block text-xs font-semibold text-stone-600 mb-1">Observação / Comprovante (opcional)</label>
+              <input
+                type="text"
+                placeholder="Ex: PIX feito hoje às 14h"
+                value={obsDoacao}
+                onChange={e => setObsDoacao(e.target.value)}
+                className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs"
+              />
+            </div>
+
             <button type="submit" className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-emerald-950 font-bold rounded-xl text-xs transition">
-              Registrar Minha Doação
+              Enviar para Aprovação
             </button>
           </form>
+
+          {/* Minhas solicitações recentes */}
+          {doacoesPendentes.filter(d => d.doador_nome === currentUser?.nome).length > 0 && (
+            <div className="pt-3 border-t border-stone-100 space-y-1.5">
+              <p className="text-[11px] font-bold text-stone-500 uppercase">Meus envios recentes:</p>
+              {doacoesPendentes
+                .filter(d => d.doador_nome === currentUser?.nome)
+                .slice(0, 3)
+                .map(d => (
+                  <div key={d.id} className="flex justify-between items-center text-xs bg-stone-50 px-2.5 py-1.5 rounded-lg">
+                    <span>R$ {Number(d.valor).toFixed(2)} ({d.campanha_titulo})</span>
+                    <span className={`font-bold text-[10px] px-2 py-0.5 rounded ${d.status === 'aprovado' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}`}>
+                      {d.status === 'aprovado' ? '✓ Aprovada' : 'Em análise'}
+                    </span>
+                  </div>
+                ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -2609,8 +3345,6 @@ function BibliotecaTab({
     return d.toISOString().slice(0, 10);
   };
 
-  const hojeStr = new Date().toISOString().slice(0, 10);
-
   const adicionarLivro = async (e) => {
     e.preventDefault();
     if (!novoLivro.titulo) return;
@@ -2631,7 +3365,6 @@ function BibliotecaTab({
   };
 
   const pegarEmprestado = async (livro) => {
-    const hoje = new Date().toISOString().slice(0, 10);
     const devolucao = adicionarDias(prazoDias);
     const reservasAtualizadas = (livro.reservas || []).filter(r => r.medium_id !== currentUser?.id);
 
@@ -2640,7 +3373,7 @@ function BibliotecaTab({
       .update({
         status: 'Emprestado',
         emprestado_para: currentUser?.id,
-        data_emprestimo: hoje,
+        data_emprestimo: HOJE_STR,
         data_devolucao_prevista: devolucao,
         reservas: reservasAtualizadas
       })
@@ -2694,7 +3427,7 @@ function BibliotecaTab({
       showToast('Você já está na fila de reserva deste livro.');
       return;
     }
-    const novasReservas = [...atuais, { medium_id: currentUser?.id, nome: currentUser?.nome, data: hojeStr }];
+    const novasReservas = [...atuais, { medium_id: currentUser?.id, nome: currentUser?.nome, data: HOJE_STR }];
     const { data } = await supabase
       .from('biblioteca')
       .update({ reservas: novasReservas })
@@ -2727,7 +3460,7 @@ function BibliotecaTab({
   };
 
   const livrosVencidos = livros.filter(
-    l => l.status === 'Emprestado' && l.data_devolucao_prevista && l.data_devolucao_prevista < hojeStr
+    l => l.status === 'Emprestado' && l.data_devolucao_prevista && l.data_devolucao_prevista < HOJE_STR
   );
 
   return (
@@ -2814,7 +3547,7 @@ function BibliotecaTab({
           livros.map(l => {
             const portador = mediums.find(m => m.id === l.emprestado_para);
             const isMine = l.emprestado_para === currentUser?.id;
-            const vencido = l.status === 'Emprestado' && l.data_devolucao_prevista && l.data_devolucao_prevista < hojeStr;
+            const vencido = l.status === 'Emprestado' && l.data_devolucao_prevista && l.data_devolucao_prevista < HOJE_STR;
             const reservas = l.reservas || [];
 
             return (
@@ -2900,9 +3633,11 @@ function BibliotecaTab({
 }
 
 /* ===================== 8. ABA AVISOS & LEMBRETES WHATSAPP ===================== */
-function MensagensTab({ notificacoes, setNotificacoes, mediums, bebidas, canCadastros, canBebidas, showToast }) {
+function MensagensTab({ notificacoes, setNotificacoes, mediums, bebidas, configCasa, canCadastros, canBebidas, showToast }) {
   const [titulo, setTitulo] = useState('');
   const [mensagem, setMensagem] = useState('');
+
+  const valorBebida = Number(configCasa.valor_bebidas_padrao || 10).toFixed(2);
 
   const publicarAviso = async (e) => {
     e.preventDefault();
@@ -2928,7 +3663,9 @@ function MensagensTab({ notificacoes, setNotificacoes, mediums, bebidas, canCada
     window.open(url, '_blank');
   };
 
-  const pendentesBebida = mediums.filter(m => !bebidas.some(b => b.medium_id === m.id && b.pago));
+  const pendentesBebida = mediums.filter(
+    m => !bebidas.some(b => b.medium_id === m.id && b.mes_referencia === MES_ATUAL && b.pago)
+  );
   const canPost = canCadastros || canBebidas;
 
   return (
@@ -2983,7 +3720,7 @@ function MensagensTab({ notificacoes, setNotificacoes, mediums, bebidas, canCada
                       <button
                         onClick={() => abrirWhatsApp(
                           m.telefone,
-                          `Axé, ${m.nome}! Passando para lembrar da contribuição mensal de R$ 10,00 da Caixinha de Bebidas da Casa Bendizer (${MES_ATUAL}).`
+                          `Axé, ${m.nome}! Passando para lembrar da contribuição mensal de R$ ${valorBebida} da Caixinha de Bebidas da ${configCasa.nome_casa || 'Casa Bendizer'} (${MES_ATUAL}).`
                         )}
                         className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg flex items-center gap-1"
                       >
@@ -3064,7 +3801,6 @@ function ConfiguracoesTab({
   );
   const [corpoBoletim, setCorpoBoletim] = useState(() => gerarTextoBoletimPadrao(configCasa.nome_casa));
 
-  // Estado para Comunicado Livre por E-mail a todos
   const [assuntoLivre, setAssuntoLivre] = useState('');
   const [corpoLivre, setCorpoLivre] = useState('');
   const [incluirAfastados, setIncluirAfastados] = useState(false);
@@ -3080,8 +3816,6 @@ function ConfiguracoesTab({
     const bcc = emailsDestinatarios.join(',');
     const mailto = `mailto:${encodeURIComponent(formConfig.email_admin_boletim || '')}?bcc=${encodeURIComponent(bcc)}&subject=${encodeURIComponent(assuntoBoletim)}&body=${encodeURIComponent(corpoBoletim)}`;
     window.open(mailto, '_blank');
-
-    // Registra que o boletim do mês atual já foi enviado
     await salvarConfigCasa({ ...formConfig, ultimo_boletim_enviado: MES_ATUAL });
   };
 
@@ -3099,6 +3833,7 @@ function ConfiguracoesTab({
     await salvarConfigCasa({
       ...formConfig,
       valor_mensalidade_padrao: parseFloat(formConfig.valor_mensalidade_padrao) || 50,
+      valor_bebidas_padrao: parseFloat(formConfig.valor_bebidas_padrao) || 10,
       dia_vencimento: parseInt(formConfig.dia_vencimento, 10) || 10,
       prazo_biblioteca_dias: parseInt(formConfig.prazo_biblioteca_dias, 10) || 20,
     });
@@ -3296,11 +4031,11 @@ function ConfiguracoesTab({
         </form>
       </div>
 
-      {/* 2. DADOS DA CASA, PIX & PARÂMETROS */}
+      {/* 2. DADOS DA CASA, PIX, VALORES (MENSALIDADE & BEBIDAS) & PARÂMETROS */}
       <form onSubmit={handleSalvarGeral} className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm space-y-5">
         <h2 className="font-bold text-base text-stone-800 flex items-center gap-2">
           <Settings className="w-5 h-5 text-emerald-700" />
-          Parâmetros Gerais, PIX & Regras da Casa
+          Parâmetros Gerais, Valores, PIX & Regras da Casa
         </h2>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -3334,7 +4069,7 @@ function ConfiguracoesTab({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 bg-amber-50/60 p-4 rounded-xl border border-amber-200/80">
+        <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 bg-amber-50/60 p-4 rounded-xl border border-amber-200/80">
           <div>
             <label className="block text-xs font-semibold text-stone-700 mb-1">Chave PIX Oficial</label>
             <input
@@ -3346,17 +4081,17 @@ function ConfiguracoesTab({
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-stone-700 mb-1">Nome do Favorecido PIX</label>
+            <label className="block text-xs font-semibold text-stone-700 mb-1">Favorecido PIX</label>
             <input
               type="text"
               value={formConfig.favorecido_pix || ''}
               onChange={e => setFormConfig({ ...formConfig, favorecido_pix: e.target.value })}
-              placeholder="Nome que aparece no banco"
+              placeholder="Nome no banco"
               className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-stone-700 mb-1">Mensalidade Padrão (R$)</label>
+            <label className="block text-xs font-semibold text-stone-700 mb-1">Mensalidade (R$)</label>
             <input
               type="number"
               step="0.01"
@@ -3366,7 +4101,17 @@ function ConfiguracoesTab({
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-stone-700 mb-1">Dia de Vencimento</label>
+            <label className="block text-xs font-semibold text-stone-700 mb-1">Contrib. Bebidas (R$)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={formConfig.valor_bebidas_padrao || 10}
+              onChange={e => setFormConfig({ ...formConfig, valor_bebidas_padrao: e.target.value })}
+              className="w-full px-3 py-2 border border-stone-200 rounded-xl text-xs bg-white"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-stone-700 mb-1">Dia Vencimento</label>
             <input
               type="number"
               min={1}
