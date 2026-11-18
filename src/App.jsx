@@ -3807,30 +3807,44 @@ function ConfiguracoesTab({
       .replace(/\{ANIVERSARIANTES\}/gi, textoAniversariantes);
   };
 
-  const gerarTextoBoletimPadrao = (nomeCasa) => {
-    if (configCasa.mensagem_boletim_padrao && configCasa.mensagem_boletim_padrao.trim()) {
-      return aplicarVariaveisBoletim(configCasa.mensagem_boletim_padrao, nomeCasa);
+  const gerarTextoBoletimPadrao = (nomeCasa, cfg = configCasa) => {
+    if (cfg.mensagem_boletim_padrao && cfg.mensagem_boletim_padrao.trim()) {
+      return aplicarVariaveisBoletim(cfg.mensagem_boletim_padrao, nomeCasa);
     }
     const { textoGiras, textoAniversariantes } = obterDadosDoMes();
     return `Axé a todos da ${nomeCasa || 'Casa Bendizer'}!\n\nSegue o nosso informativo mensal de ${NOME_MES_ATUAL}:\n\n📅 CALENDÁRIO DE GIRAS DO MÊS:\n${textoGiras}\n\n🎂 ANIVERSARIANTES DO MÊS:\n${textoAniversariantes}\n\nQue Oxalá abençoe a caminhada de todos!`;
   };
 
-  const gerarAssuntoBoletimPadrao = (nomeCasa) => {
-    if (configCasa.assunto_boletim_padrao && configCasa.assunto_boletim_padrao.trim()) {
-      return aplicarVariaveisBoletim(configCasa.assunto_boletim_padrao, nomeCasa);
+  const gerarAssuntoBoletimPadrao = (nomeCasa, cfg = configCasa) => {
+    if (cfg.assunto_boletim_padrao && cfg.assunto_boletim_padrao.trim()) {
+      return aplicarVariaveisBoletim(cfg.assunto_boletim_padrao, nomeCasa);
     }
     return `Calendário de Giras & Aniversariantes — ${nomeCasa || 'Casa Bendizer'} (${NOME_MES_ATUAL})`;
   };
 
   const [assuntoBoletim, setAssuntoBoletim] = useState(() => {
     const salvoLocal = localStorage.getItem('cb_rascunho_boletim_assunto');
-    return salvoLocal !== null ? salvoLocal : gerarAssuntoBoletimPadrao(configCasa.nome_casa);
+    return salvoLocal !== null ? salvoLocal : gerarAssuntoBoletimPadrao(configCasa.nome_casa, configCasa);
   });
 
   const [corpoBoletim, setCorpoBoletim] = useState(() => {
     const salvoLocal = localStorage.getItem('cb_rascunho_boletim_corpo');
-    return salvoLocal !== null ? salvoLocal : gerarTextoBoletimPadrao(configCasa.nome_casa);
+    return salvoLocal !== null ? salvoLocal : gerarTextoBoletimPadrao(configCasa.nome_casa, configCasa);
   });
+
+  useEffect(() => {
+    const temRascunhoNaoSalvo = localStorage.getItem('cb_rascunho_boletim_modificado') === 'true';
+    if (!temRascunhoNaoSalvo && (configCasa.assunto_boletim_padrao || configCasa.mensagem_boletim_padrao)) {
+      const novoAssunto = gerarAssuntoBoletimPadrao(configCasa.nome_casa, configCasa);
+      const novoCorpo = gerarTextoBoletimPadrao(configCasa.nome_casa, configCasa);
+      setAssuntoBoletim(novoAssunto);
+      setCorpoBoletim(novoCorpo);
+      try {
+        localStorage.setItem('cb_rascunho_boletim_assunto', novoAssunto);
+        localStorage.setItem('cb_rascunho_boletim_corpo', novoCorpo);
+      } catch (_) {}
+    }
+  }, [configCasa.assunto_boletim_padrao, configCasa.mensagem_boletim_padrao]);
 
   const [assuntoLivre, setAssuntoLivre] = useState(() => localStorage.getItem('cb_rascunho_livre_assunto') || '');
   const [corpoLivre, setCorpoLivre] = useState(() => localStorage.getItem('cb_rascunho_livre_corpo') || '');
@@ -3840,12 +3854,18 @@ function ConfiguracoesTab({
 
   const handleChangeAssuntoBoletim = (val) => {
     setAssuntoBoletim(val);
-    try { localStorage.setItem('cb_rascunho_boletim_assunto', val); } catch (_) {}
+    try {
+      localStorage.setItem('cb_rascunho_boletim_assunto', val);
+      localStorage.setItem('cb_rascunho_boletim_modificado', 'true');
+    } catch (_) {}
   };
 
   const handleChangeCorpoBoletim = (val) => {
     setCorpoBoletim(val);
-    try { localStorage.setItem('cb_rascunho_boletim_corpo', val); } catch (_) {}
+    try {
+      localStorage.setItem('cb_rascunho_boletim_corpo', val);
+      localStorage.setItem('cb_rascunho_boletim_modificado', 'true');
+    } catch (_) {}
   };
 
   const handleChangeAssuntoLivre = (val) => {
@@ -3861,17 +3881,20 @@ function ConfiguracoesTab({
   const salvarComoModeloPadrao = async () => {
     setSalvandoPadrao(true);
     try {
-      const ok = await salvarConfigCasa({
+      const novoConfig = {
         ...formConfig,
         assunto_boletim_padrao: assuntoBoletim,
         mensagem_boletim_padrao: corpoBoletim
-      });
+      };
+      const ok = await salvarConfigCasa(novoConfig);
       if (ok) {
+        setFormConfig(novoConfig);
         try {
           localStorage.setItem('cb_rascunho_boletim_assunto', assuntoBoletim);
           localStorage.setItem('cb_rascunho_boletim_corpo', corpoBoletim);
+          localStorage.setItem('cb_rascunho_boletim_modificado', 'false');
         } catch (_) {}
-        showToast('Nova mensagem padrão do boletim salva com sucesso!');
+        showToast('Seu assunto e mensagem padrão foram salvos no banco!');
       }
     } finally {
       setSalvandoPadrao(false);
@@ -4037,16 +4060,21 @@ function ConfiguracoesTab({
               <button
                 type="button"
                 onClick={() => {
-                  const { textoGiras, textoAniversariantes } = obterDadosDoMes();
-                  const a = `Calendário de Giras & Aniversariantes — ${formConfig.nome_casa || 'Casa Bendizer'} (${NOME_MES_ATUAL})`;
-                  const c = `Axé a todos da ${formConfig.nome_casa || 'Casa Bendizer'}!\n\nSegue o nosso informativo mensal de ${NOME_MES_ATUAL}:\n\n📅 CALENDÁRIO DE GIRAS DO MÊS:\n${textoGiras}\n\n🎂 ANIVERSARIANTES DO MÊS:\n${textoAniversariantes}\n\nQue Oxalá abençoe a caminhada de todos!`;
-                  handleChangeAssuntoBoletim(a);
-                  handleChangeCorpoBoletim(c);
-                  showToast('Texto automático do mês gerado!');
+                  const cfgAtual = { ...configCasa, ...formConfig };
+                  const a = gerarAssuntoBoletimPadrao(cfgAtual.nome_casa, cfgAtual);
+                  const c = gerarTextoBoletimPadrao(cfgAtual.nome_casa, cfgAtual);
+                  setAssuntoBoletim(a);
+                  setCorpoBoletim(c);
+                  try {
+                    localStorage.setItem('cb_rascunho_boletim_assunto', a);
+                    localStorage.setItem('cb_rascunho_boletim_corpo', c);
+                    localStorage.setItem('cb_rascunho_boletim_modificado', 'false');
+                  } catch (_) {}
+                  showToast('Seu modelo padrão foi carregado com os dados deste mês!');
                 }}
-                className="text-[11px] font-semibold text-stone-600 hover:underline flex items-center gap-1"
+                className="text-[11px] font-semibold text-emerald-800 hover:underline flex items-center gap-1"
               >
-                <RefreshCw className="w-3 h-3" /> Gerar Automático do Mês
+                <RefreshCw className="w-3 h-3" /> Aplicar Meu Modelo Padrão
               </button>
             </div>
           </div>
@@ -4066,9 +4094,30 @@ function ConfiguracoesTab({
               <label className="block text-[11px] font-semibold text-stone-600">
                 Texto da Mensagem (salvo automaticamente como rascunho ao digitar)
               </label>
-              <span className="text-[10px] text-stone-500">
-                Variáveis opcionais: <code>{'{MES}'}</code>, <code>{'{GIRAS}'}</code>, <code>{'{ANIVERSARIANTES}'}</code>
-              </span>
+              <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                <span className="text-stone-500">Inserir automático:</span>
+                <button
+                  type="button"
+                  onClick={() => handleChangeCorpoBoletim(corpoBoletim + (corpoBoletim.endsWith('\n') || !corpoBoletim ? '' : '\n') + '{GIRAS}')}
+                  className="px-2 py-0.5 bg-white border border-stone-300 rounded hover:bg-stone-100 font-semibold text-stone-700"
+                >
+                  + Giras do Mês
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleChangeCorpoBoletim(corpoBoletim + (corpoBoletim.endsWith('\n') || !corpoBoletim ? '' : '\n') + '{ANIVERSARIANTES}')}
+                  className="px-2 py-0.5 bg-white border border-stone-300 rounded hover:bg-stone-100 font-semibold text-stone-700"
+                >
+                  + Aniversariantes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleChangeCorpoBoletim(corpoBoletim + ' {MES}')}
+                  className="px-2 py-0.5 bg-white border border-stone-300 rounded hover:bg-stone-100 font-semibold text-stone-700"
+                >
+                  + Mês
+                </button>
+              </div>
             </div>
             <textarea
               rows={7}
